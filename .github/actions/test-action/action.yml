@@ -1,0 +1,33 @@
+name: 'wmao Test Action'
+description: 'Shared test steps for wmao'
+inputs:
+  codecov-token:
+    description: 'Token for Codecov'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Lint (Go)
+      if: runner.os == 'Linux'
+      uses: golangci/golangci-lint-action@v9
+    - name: Lint (Frontend)
+      if: runner.os == 'Linux'
+      run: make lint-frontend
+      shell: bash
+    - run: make build
+      shell: bash
+    - name: Test
+      if: runner.os != 'Linux'
+      run: make test
+      shell: bash
+    - name: Coverage
+      if: runner.os == 'Linux'
+      run: make coverage
+      shell: bash
+    - name: Upload Coverage
+      if: runner.os == 'Linux'
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ inputs.codecov-token }}
+        files: coverage.out

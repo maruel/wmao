@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "pnpm -C frontend build",
+    "dev": "pnpm -C frontend dev",
+    "lint": "pnpm -C frontend lint",
+    "lint:fix": "pnpm -C frontend lint:fix"
+  }
+}
