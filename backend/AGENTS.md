@@ -4,9 +4,15 @@ Go backend for wmao. Packages under `internal/` are private.
 
 ## Conventions
 
-- `CGO_ENABLED=0` for all builds.
 - Pass `context.Context` through all call chains.
 - Serialize git operations that touch the working directory (branch checkout, push).
+
+## References
+
+Claude Code headless:
+- https://platform.claude.com/docs/en/agent-sdk/streaming-output: explains the streaming protocol
+- git clone https://github.com/anthropics/claude-agent-sdk-python to get the SDK and understand types, in particular `src/claude_agent_sdk/types.py`
+
 
 <!-- BEGIN FILE INDEX -->
 ## File Index
