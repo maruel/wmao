@@ -142,3 +142,29 @@
   max-height: 200px;
   overflow: auto;
 }
+
+/* Mobile: <=768px */
+@media (max-width: 768px) {
+  .inputForm {
+    flex-wrap: wrap;
+  }
+
+  .textInput {
+    width: 100%;
+    flex: none;
+    box-sizing: border-box;
+  }
+
+  .btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .messageArea {
+    min-height: 150px;
+  }
+
+  .toolBlockPre {
+    max-height: 150px;
+  }
+}

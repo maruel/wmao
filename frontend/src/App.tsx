@@ -92,7 +92,7 @@ export default function App() {
       </form>
 
       <div class={styles.layout}>
-        <div style={{ flex: selectedId() !== null ? "0 0 340px" : "1" }}>
+        <div class={`${styles.taskList} ${selectedId() !== null ? styles.taskListCollapsed : ""}`}>
           <h2>Tasks</h2>
           <Show when={tasks().length === 0}>
             <p class={styles.placeholder}>No tasks yet.</p>
@@ -129,6 +129,7 @@ export default function App() {
 
         <Show when={selectedId() !== null}>
           <div class={styles.detailPane}>
+            <button class={styles.backBtn} onClick={() => setSelectedId(null)}>&larr; Back</button>
             <TaskView
               taskId={selectedId() ?? 0}
               taskState={selectedTask()?.state ?? "pending"}
