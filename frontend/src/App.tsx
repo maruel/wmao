@@ -73,8 +73,10 @@ export default function App() {
 
   return (
     <div class={styles.app}>
-      <h1>wmao</h1>
-      <p>Work my ass off. Manage coding agents.</p>
+      <div class={styles.titleRow}>
+        <h1 class={styles.title}>wmao</h1>
+        <span class={styles.subtitle}>Work my ass off. Manage coding agents.</span>
+      </div>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={styles.submitForm}>
         <select
