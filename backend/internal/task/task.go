@@ -64,6 +64,7 @@ func (s State) String() string {
 // Result holds the outcome of a completed task.
 type Result struct {
 	Task        string
+	Repo        string
 	Branch      string
 	Container   string
 	State       State
@@ -78,6 +79,7 @@ type Result struct {
 // Task represents a single unit of work.
 type Task struct {
 	Prompt    string
+	Repo      string // Relative repo path (for display/API).
 	MaxTurns  int
 	Branch    string
 	Container string
@@ -212,6 +214,7 @@ func (t *Task) Done() <-chan struct{} {
 // Runner manages the serialization of setup and push operations.
 type Runner struct {
 	BaseBranch string
+	Dir        string // Absolute path to the git repository.
 	MaxTurns   int
 	LogDir     string // If set, raw JSONL session logs are written here.
 
@@ -223,7 +226,7 @@ type Runner struct {
 // called in a goroutine. The result is returned; the task is self-contained.
 func (r *Runner) Run(ctx context.Context, t *Task) Result {
 	if err := r.Start(ctx, t); err != nil {
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: err}
+		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: err}
 	}
 	// Single-shot: finish immediately.
 	t.Finish()
@@ -299,7 +302,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	case <-t.Done():
 	case <-ctx.Done():
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: ctx.Err()}
+		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: ctx.Err()}
 	}
 
 	t.mu.Lock()
@@ -332,16 +335,16 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 		if err := r.KillContainer(ctx, t.Branch); err != nil {
 			slog.Warn("failed to kill container", "container", name, "err", err)
 		}
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateEnded}
+		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateEnded}
 	}
 
 	if session == nil {
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: errors.New("no active session")}
+		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: errors.New("no active session")}
 	}
 	if waitErr != nil {
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: waitErr}
+		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateFailed, Err: waitErr}
 	}
 
 	// 3. Diff + pull (requires task branch checked out).
@@ -351,7 +354,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	if pullErr != nil {
 		t.State = StateFailed
 		return Result{
-			Task: t.Prompt, Branch: t.Branch, Container: name,
+			Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name,
 			State: StateFailed, DiffStat: diffStat, Err: pullErr,
 		}
 	}
@@ -360,12 +363,12 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	t.State = StatePushing
 	slog.Info("pushing to origin", "branch", t.Branch)
 	r.pushMu.Lock()
-	pushErr := gitutil.Push(ctx, t.Branch)
+	pushErr := gitutil.Push(ctx, r.Dir, t.Branch)
 	r.pushMu.Unlock()
 	if pushErr != nil {
 		t.State = StateFailed
 		return Result{
-			Task: t.Prompt, Branch: t.Branch, Container: name,
+			Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name,
 			State: StateFailed, DiffStat: diffStat, Err: pushErr,
 		}
 	}
@@ -379,6 +382,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 
 	return Result{
 		Task:        t.Prompt,
+		Repo:        t.Repo,
 		Branch:      t.Branch,
 		Container:   name,
 		State:       StateDone,
@@ -394,18 +398,18 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 // branchMu.
 func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 	slog.Info("creating branch", "branch", t.Branch)
-	if err := gitutil.CreateBranch(ctx, t.Branch); err != nil {
+	if err := gitutil.CreateBranch(ctx, r.Dir, t.Branch); err != nil {
 		return "", fmt.Errorf("create branch: %w", err)
 	}
 
 	slog.Info("starting container", "branch", t.Branch)
-	name, err := container.Start(ctx, t.Branch)
+	name, err := container.Start(ctx, r.Dir)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
 
 	// Switch back to the base branch so the next task can create its branch.
-	if err := gitutil.CheckoutBranch(ctx, r.BaseBranch); err != nil {
+	if err := gitutil.CheckoutBranch(ctx, r.Dir, r.BaseBranch); err != nil {
 		return "", fmt.Errorf("checkout base: %w", err)
 	}
 	return name, nil
@@ -417,19 +421,19 @@ func (r *Runner) pullChanges(ctx context.Context, t *Task) (diffStat string, err
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 
-	if err := gitutil.CheckoutBranch(ctx, t.Branch); err != nil {
+	if err := gitutil.CheckoutBranch(ctx, r.Dir, t.Branch); err != nil {
 		return "", fmt.Errorf("checkout for pull: %w", err)
 	}
 	defer func() {
-		if e := gitutil.CheckoutBranch(ctx, r.BaseBranch); e != nil {
+		if e := gitutil.CheckoutBranch(ctx, r.Dir, r.BaseBranch); e != nil {
 			err = errors.Join(err, fmt.Errorf("checkout base after pull: %w", e))
 		}
 	}()
 
-	diffStat, _ = container.Diff(ctx, "--stat")
+	diffStat, _ = container.Diff(ctx, r.Dir, "--stat")
 
 	slog.Info("pulling changes", "container", t.Container)
-	if err := container.Pull(ctx); err != nil {
+	if err := container.Pull(ctx, r.Dir); err != nil {
 		return diffStat, err
 	}
 	return diffStat, nil
@@ -441,16 +445,16 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) (err error) {
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 
-	if err := gitutil.CheckoutBranch(ctx, branch); err != nil {
+	if err := gitutil.CheckoutBranch(ctx, r.Dir, branch); err != nil {
 		return fmt.Errorf("checkout for kill: %w", err)
 	}
 	defer func() {
-		if e := gitutil.CheckoutBranch(ctx, r.BaseBranch); e != nil {
+		if e := gitutil.CheckoutBranch(ctx, r.Dir, r.BaseBranch); e != nil {
 			err = errors.Join(err, fmt.Errorf("checkout base after kill: %w", e))
 		}
 	}()
 
-	return container.Kill(ctx)
+	return container.Kill(ctx, r.Dir)
 }
 
 var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)

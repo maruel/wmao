@@ -23,23 +23,27 @@ func mainImpl() error {
 	maxTurns := flag.Int("max-turns", 0, "max agentic turns per task (0=unlimited)")
 	addr := flag.String("http", "", "start web UI on this address (e.g. :8080)")
 	logDir := flag.String("logs", "logs", "directory for session JSONL logs (empty to disable)")
+	root := flag.String("root", "", "parent directory containing git repos")
 	flag.Parse()
 
 	// Web UI mode.
 	if *addr != "" {
-		return serveHTTP(ctx, *addr, *maxTurns, *logDir)
+		if *root == "" {
+			return errors.New("-root is required in HTTP mode")
+		}
+		return serveHTTP(ctx, *addr, *root, *maxTurns, *logDir)
 	}
 
 	// CLI mode.
 	args := flag.Args()
 	if len(args) == 0 {
-		return errors.New("usage: wmao [-max-turns N] [-http :8080] [-logs dir] <task> [task...]")
+		return errors.New("usage: wmao [-max-turns N] [-http :8080] [-logs dir] [-root dir] <task> [task...]")
 	}
-	return runCLI(ctx, args, *maxTurns, *logDir)
+	return runCLI(ctx, args, *root, *maxTurns, *logDir)
 }
 
-func serveHTTP(ctx context.Context, addr string, maxTurns int, logDir string) error {
-	srv, err := server.New(ctx, maxTurns, logDir)
+func serveHTTP(ctx context.Context, addr, rootDir string, maxTurns int, logDir string) error {
+	srv, err := server.New(ctx, rootDir, maxTurns, logDir)
 	if err != nil {
 		return err
 	}
@@ -50,8 +54,32 @@ func serveHTTP(ctx context.Context, addr string, maxTurns int, logDir string) er
 	return err
 }
 
-func runCLI(ctx context.Context, args []string, maxTurns int, logDir string) error {
-	baseBranch, err := gitutil.CurrentBranch(ctx)
+func runCLI(ctx context.Context, args []string, rootDir string, maxTurns int, logDir string) error {
+	// Determine the repo directory.
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if rootDir != "" {
+		// When -root is set, CWD must be inside a repo under root.
+		repos, err := gitutil.DiscoverRepos(rootDir, 3)
+		if err != nil {
+			return fmt.Errorf("discover repos: %w", err)
+		}
+		found := false
+		for _, r := range repos {
+			if strings.HasPrefix(dir, r) {
+				dir = r
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("CWD %s is not inside any repo under %s", dir, rootDir)
+		}
+	}
+
+	baseBranch, err := gitutil.CurrentBranch(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("determining current branch: %w", err)
 	}
@@ -64,7 +92,7 @@ func runCLI(ctx context.Context, args []string, maxTurns int, logDir string) err
 		}
 	}
 
-	runner := &task.Runner{BaseBranch: baseBranch, MaxTurns: maxTurns, LogDir: logDir}
+	runner := &task.Runner{BaseBranch: baseBranch, Dir: dir, MaxTurns: maxTurns, LogDir: logDir}
 
 	results := make([]task.Result, len(tasks))
 	var wg sync.WaitGroup
@@ -75,7 +103,7 @@ func runCLI(ctx context.Context, args []string, maxTurns int, logDir string) err
 	}
 	wg.Wait()
 
-	_ = gitutil.CheckoutBranch(ctx, baseBranch)
+	_ = gitutil.CheckoutBranch(ctx, dir, baseBranch)
 
 	fmt.Println()
 	fmt.Println("=== Results ===")

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -21,11 +22,20 @@ import (
 	"github.com/maruel/wmao/backend/internal/task"
 )
 
+type repoInfo struct {
+	RelPath    string // e.g. "github/wmao" — used as API ID.
+	AbsPath    string
+	BaseBranch string
+}
+
 // Server is the HTTP server for the wmao web UI.
 type Server struct {
-	runner *task.Runner
-	mu     sync.Mutex
-	tasks  []*taskEntry
+	repos    []repoInfo
+	runners  map[string]*task.Runner // keyed by RelPath
+	mu       sync.Mutex
+	tasks    []*taskEntry
+	maxTurns int
+	logDir   string
 }
 
 type taskEntry struct {
@@ -38,6 +48,7 @@ type taskEntry struct {
 type taskJSON struct {
 	ID         int     `json:"id"`
 	Task       string  `json:"task"`
+	Repo       string  `json:"repo"`
 	Branch     string  `json:"branch"`
 	Container  string  `json:"container"`
 	State      string  `json:"state"`
@@ -49,16 +60,59 @@ type taskJSON struct {
 	Result     string  `json:"result,omitempty"`
 }
 
-// New creates a new Server. It discovers preexisting containers and adopts
-// them as tasks.
-func New(ctx context.Context, maxTurns int, logDir string) (*Server, error) {
-	branch, err := gitutil.CurrentBranch(ctx)
+// repoJSON is the JSON representation of a discovered repo.
+type repoJSON struct {
+	Path       string `json:"path"`
+	BaseBranch string `json:"baseBranch"`
+}
+
+// New creates a new Server. It discovers repos under rootDir, creates a Runner
+// per repo, and adopts preexisting containers.
+func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Server, error) {
+	absPaths, err := gitutil.DiscoverRepos(rootDir, 3)
+	if err != nil {
+		return nil, fmt.Errorf("discover repos: %w", err)
+	}
+	if len(absPaths) == 0 {
+		return nil, fmt.Errorf("no git repos found under %s", rootDir)
+	}
+
+	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
 	}
+
 	s := &Server{
-		runner: &task.Runner{BaseBranch: branch, MaxTurns: maxTurns, LogDir: logDir},
+		runners:  make(map[string]*task.Runner, len(absPaths)),
+		maxTurns: maxTurns,
+		logDir:   logDir,
 	}
+
+	for _, abs := range absPaths {
+		rel, err := filepath.Rel(absRoot, abs)
+		if err != nil {
+			rel = filepath.Base(abs)
+		}
+		branch, err := gitutil.CurrentBranch(ctx, abs)
+		if err != nil {
+			slog.Warn("skipping repo, cannot determine branch", "path", abs, "err", err)
+			continue
+		}
+		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch}
+		s.repos = append(s.repos, ri)
+		s.runners[rel] = &task.Runner{
+			BaseBranch: branch,
+			Dir:        abs,
+			MaxTurns:   maxTurns,
+			LogDir:     logDir,
+		}
+		slog.Info("discovered repo", "path", rel, "branch", branch)
+	}
+
+	if len(s.repos) == 0 {
+		return nil, fmt.Errorf("no usable git repos found under %s", rootDir)
+	}
+
 	s.adoptContainers(ctx)
 	return s, nil
 }
@@ -66,6 +120,7 @@ func New(ctx context.Context, maxTurns int, logDir string) (*Server, error) {
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/repos", s.handleListRepos)
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("POST /api/tasks", s.handleCreateTask(ctx))
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
@@ -96,6 +151,15 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return srv.ListenAndServe()
 }
 
+func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
+	out := make([]repoJSON, len(s.repos))
+	for i, r := range s.repos {
+		out[i] = repoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 func (s *Server) handleListTasks(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	out := make([]taskJSON, len(s.tasks))
@@ -112,6 +176,7 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Prompt string `json:"prompt"`
+			Repo   string `json:"repo"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -121,8 +186,18 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 			http.Error(w, "prompt is required", http.StatusBadRequest)
 			return
 		}
+		if req.Repo == "" {
+			http.Error(w, "repo is required", http.StatusBadRequest)
+			return
+		}
 
-		t := &task.Task{Prompt: req.Prompt}
+		runner, ok := s.runners[req.Repo]
+		if !ok {
+			http.Error(w, "unknown repo: "+req.Repo, http.StatusBadRequest)
+			return
+		}
+
+		t := &task.Task{Prompt: req.Prompt, Repo: req.Repo}
 		entry := &taskEntry{task: t, done: make(chan struct{})}
 
 		s.mu.Lock()
@@ -133,14 +208,14 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 		// Run in background using the server context, not the request context.
 		go func() {
 			defer close(entry.done)
-			if err := s.runner.Start(ctx, t); err != nil {
-				result := task.Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
+			if err := runner.Start(ctx, t); err != nil {
+				result := task.Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
 				s.mu.Lock()
 				entry.result = &result
 				s.mu.Unlock()
 				return
 			}
-			result := s.runner.Finish(ctx, t)
+			result := runner.Finish(ctx, t)
 			s.mu.Lock()
 			entry.result = &result
 			s.mu.Unlock()
@@ -260,49 +335,50 @@ func (s *Server) adoptContainers(ctx context.Context) {
 		slog.Warn("failed to list containers on startup", "err", err)
 		return
 	}
-	repo, err := gitutil.RepoName(ctx)
-	if err != nil {
-		slog.Warn("failed to get repo name for container adoption", "err", err)
-		return
-	}
-	for _, e := range entries {
-		branch, ok := container.BranchFromContainer(e.Name, repo)
-		if !ok {
-			continue
-		}
-		t := &task.Task{
-			Prompt:    "(adopted) " + branch,
-			Branch:    branch,
-			Container: e.Name,
-			State:     task.StateWaiting,
-		}
-		t.InitDoneCh()
-		entry := &taskEntry{task: t, done: make(chan struct{})}
 
-		s.mu.Lock()
-		s.tasks = append(s.tasks, entry)
-		s.mu.Unlock()
-
-		slog.Info("adopted preexisting container", "container", e.Name, "branch", branch)
-
-		// Goroutine waits for End, then kills the container.
-		go func() {
-			defer close(entry.done)
-			select {
-			case <-t.Done():
-			case <-ctx.Done():
-				return
+	for _, ri := range s.repos {
+		repoName := filepath.Base(ri.AbsPath)
+		runner := s.runners[ri.RelPath]
+		for _, e := range entries {
+			branch, ok := container.BranchFromContainer(e.Name, repoName)
+			if !ok {
+				continue
 			}
-			t.State = task.StateEnded
-			slog.Info("ending adopted container", "container", t.Container)
-			if err := s.runner.KillContainer(ctx, t.Branch); err != nil {
-				slog.Warn("failed to kill adopted container", "container", t.Container, "err", err)
+			t := &task.Task{
+				Prompt:    "(adopted) " + branch,
+				Repo:      ri.RelPath,
+				Branch:    branch,
+				Container: e.Name,
+				State:     task.StateWaiting,
 			}
-			result := task.Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: task.StateEnded}
+			t.InitDoneCh()
+			entry := &taskEntry{task: t, done: make(chan struct{})}
+
 			s.mu.Lock()
-			entry.result = &result
+			s.tasks = append(s.tasks, entry)
 			s.mu.Unlock()
-		}()
+
+			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
+
+			// Goroutine waits for End, then kills the container.
+			go func() {
+				defer close(entry.done)
+				select {
+				case <-t.Done():
+				case <-ctx.Done():
+					return
+				}
+				t.State = task.StateEnded
+				slog.Info("ending adopted container", "container", t.Container)
+				if err := runner.KillContainer(ctx, t.Branch); err != nil {
+					slog.Warn("failed to kill adopted container", "container", t.Container, "err", err)
+				}
+				result := task.Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateEnded}
+				s.mu.Lock()
+				entry.result = &result
+				s.mu.Unlock()
+			}()
+		}
 	}
 }
 
@@ -328,6 +404,7 @@ func toJSON(id int, e *taskEntry) taskJSON {
 	j := taskJSON{
 		ID:        id,
 		Task:      e.task.Prompt,
+		Repo:      e.task.Repo,
 		Branch:    e.task.Branch,
 		Container: e.task.Container,
 		State:     e.task.State.String(),

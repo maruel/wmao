@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -54,20 +55,17 @@ func BranchFromContainer(containerName, repoName string) (string, bool) {
 	return slug, true
 }
 
-// Start creates and starts an md container for the given branch.
+// Start creates and starts an md container for the current branch.
 // It does not SSH into it (--no-ssh).
-func Start(ctx context.Context, branch string) (string, error) {
-	// md start --no-ssh will create the container and return.
-	// The container name is md-<repo>-<branch>.
+func Start(ctx context.Context, dir string) (string, error) {
 	cmd := exec.CommandContext(ctx, "md", "start", "--no-ssh")
+	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("md start: %w: %s", err, stderr.String())
 	}
-	// Derive the container name. md uses the repo name from the current
-	// directory and the current branch.
-	name, err := containerName(ctx)
+	name, err := containerName(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -75,9 +73,10 @@ func Start(ctx context.Context, branch string) (string, error) {
 }
 
 // Diff runs `md diff` and returns the diff output.
-func Diff(ctx context.Context, args ...string) (string, error) {
+func Diff(ctx context.Context, dir string, args ...string) (string, error) {
 	cmdArgs := append([]string{"diff"}, args...)
 	cmd := exec.CommandContext(ctx, "md", cmdArgs...) //nolint:gosec // args are not user-controlled.
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("md diff: %w", err)
@@ -86,8 +85,9 @@ func Diff(ctx context.Context, args ...string) (string, error) {
 }
 
 // Pull pulls changes from the container to the local branch.
-func Pull(ctx context.Context) error {
+func Pull(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "md", "pull")
+	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -97,8 +97,9 @@ func Pull(ctx context.Context) error {
 }
 
 // Kill stops and removes the container.
-func Kill(ctx context.Context) error {
+func Kill(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "md", "kill")
+	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -107,15 +108,24 @@ func Kill(ctx context.Context) error {
 	return nil
 }
 
-// containerName returns the md container name for the current repo+branch.
-func containerName(ctx context.Context) (string, error) {
+// containerName returns the md container name for the current repo+branch by
+// filtering the global container list to entries matching the repo derived
+// from dir.
+func containerName(ctx context.Context, dir string) (string, error) {
 	entries, err := List(ctx)
 	if err != nil {
 		return "", err
 	}
-	if len(entries) == 0 {
-		return "", errors.New("no md container found in md list output")
+	repo := filepath.Base(dir)
+	prefix := "md-" + repo + "-"
+	var match string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name, prefix) {
+			match = e.Name
+		}
 	}
-	// Take the most recently created one (last in the list).
-	return entries[len(entries)-1].Name, nil
+	if match == "" {
+		return "", errors.New("no md container found for repo " + repo)
+	}
+	return match, nil
 }

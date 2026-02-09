@@ -1,10 +1,16 @@
 // Main application component for wmao web UI.
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, onMount } from "solid-js";
 import TaskView from "./TaskView";
+
+interface RepoInfo {
+  path: string;
+  baseBranch: string;
+}
 
 interface TaskResult {
   id: number;
   task: string;
+  repo: string;
   branch: string;
   state: string;
   diffStat: string;
@@ -19,16 +25,30 @@ export default function App() {
   const [tasks, setTasks] = createSignal<TaskResult[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
   const [selectedId, setSelectedId] = createSignal<number | null>(null);
+  const [repos, setRepos] = createSignal<RepoInfo[]>([]);
+  const [selectedRepo, setSelectedRepo] = createSignal("");
+
+  onMount(async () => {
+    const res = await fetch("/api/repos");
+    if (res.ok) {
+      const data = (await res.json()) as RepoInfo[];
+      setRepos(data);
+      if (data.length > 0) {
+        setSelectedRepo(data[0].path);
+      }
+    }
+  });
 
   async function submitTask() {
     const p = prompt().trim();
-    if (!p) return;
+    const repo = selectedRepo();
+    if (!p || !repo) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: p }),
+        body: JSON.stringify({ prompt: p, repo }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json() as { id: number };
@@ -63,7 +83,17 @@ export default function App() {
       <p>Work my ass off. Manage coding agents.</p>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }}
-        style={{ display: "flex", gap: "0.5rem", "margin-bottom": "2rem" }}>
+        style={{ display: "flex", gap: "0.5rem", "margin-bottom": "2rem", "align-items": "center" }}>
+        <select
+          value={selectedRepo()}
+          onChange={(e) => setSelectedRepo(e.currentTarget.value)}
+          disabled={submitting()}
+          style={{ padding: "0.5rem" }}
+        >
+          <For each={repos()}>
+            {(r) => <option value={r.path}>{r.path}</option>}
+          </For>
+        </select>
         <input
           type="text"
           value={prompt()}
@@ -72,7 +102,7 @@ export default function App() {
           disabled={submitting()}
           style={{ flex: 1, padding: "0.5rem" }}
         />
-        <button type="submit" disabled={submitting() || !prompt().trim()}>
+        <button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()}>
           {submitting() ? "Submitting..." : "Run"}
         </button>
       </form>
@@ -101,6 +131,9 @@ export default function App() {
                     {t.state}
                   </span>
                 </div>
+                <Show when={t.repo}>
+                  <div style={{ "font-size": "0.75rem", color: "#777" }}>{t.repo}</div>
+                </Show>
                 <Show when={t.branch}>
                   <div style={{ "font-size": "0.8rem", color: "#555" }}>{t.branch}</div>
                 </Show>
