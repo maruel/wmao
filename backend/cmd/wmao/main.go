@@ -5,12 +5,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/maruel/wmao/backend/internal/gitutil"
 	"github.com/maruel/wmao/backend/internal/server"
 	"github.com/maruel/wmao/backend/internal/task"
@@ -25,6 +28,11 @@ func mainImpl() error {
 	logDir := flag.String("logs", "logs", "directory for session JSONL logs (empty to disable)")
 	root := flag.String("root", "", "parent directory containing git repos")
 	flag.Parse()
+
+	// Exit when executable is rebuilt (systemd restarts the service).
+	if err := watchExecutable(ctx, cancel); err != nil {
+		slog.Warn("failed to watch executable", "err", err)
+	}
 
 	// Web UI mode.
 	if *addr != "" {
@@ -161,4 +169,50 @@ func main() {
 		fmt.Fprintf(os.Stderr, "wmao: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// watchExecutable watches the current executable for modifications and calls
+// stop to trigger graceful shutdown when detected. Combined with systemd's
+// Restart=always, this enables seamless restarts after a rebuild.
+func watchExecutable(ctx context.Context, stop context.CancelFunc) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return err
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	if err := w.Add(exe); err != nil {
+		_ = w.Close()
+		return err
+	}
+	go func() {
+		defer func() { _ = w.Close() }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-w.Events:
+				if !ok {
+					return
+				}
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Chmod) {
+					slog.Info("executable modified, shutting down")
+					stop()
+					return
+				}
+			case err, ok := <-w.Errors:
+				if !ok {
+					return
+				}
+				slog.Warn("error watching executable", "err", err)
+			}
+		}
+	}()
+	return nil
 }

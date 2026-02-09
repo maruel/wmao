@@ -1,0 +1,60 @@
+# wmao systemd user service
+# Install: mkdir -p ~/.config/systemd/user && cp contrib/wmao.service ~/.config/systemd/user/
+# Enable:  systemctl --user daemon-reload && systemctl --user enable --now wmao
+# Logs:    journalctl --user -u wmao -f
+
+[Unit]
+Description=wmao - Parallel coding agent orchestrator
+Documentation=https://github.com/maruel/wmao
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/go/bin:%h/src/md:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/go/bin/wmao -http :8080 -root %h/wmao -logs %h/wmao/logs
+WorkingDirectory=%h/wmao
+Restart=always
+RestartSec=5s
+
+# --- Security Hardening ---
+
+# Filesystem isolation
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/wmao
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+
+# Capability restrictions
+NoNewPrivileges=true
+AmbientCapabilities=
+
+# Network restrictions (allow only IPv4/IPv6/Unix sockets)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SocketBindDeny=any
+SocketBindAllow=tcp:8080
+
+# System call filtering
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+# Memory/execution restrictions
+MemoryDenyWriteExecute=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+
+# Misc
+UMask=0077
+KeyringMode=private
+RemoveIPC=true
+
+[Install]
+WantedBy=default.target
