@@ -22,23 +22,24 @@ func mainImpl() error {
 
 	maxTurns := flag.Int("max-turns", 0, "max agentic turns per task (0=unlimited)")
 	addr := flag.String("http", "", "start web UI on this address (e.g. :8080)")
+	logDir := flag.String("logs", "logs", "directory for session JSONL logs (empty to disable)")
 	flag.Parse()
 
 	// Web UI mode.
 	if *addr != "" {
-		return serveHTTP(ctx, *addr, *maxTurns)
+		return serveHTTP(ctx, *addr, *maxTurns, *logDir)
 	}
 
 	// CLI mode.
 	args := flag.Args()
 	if len(args) == 0 {
-		return errors.New("usage: wmao [-max-turns N] [-http :8080] <task> [task...]")
+		return errors.New("usage: wmao [-max-turns N] [-http :8080] [-logs dir] <task> [task...]")
 	}
-	return runCLI(ctx, args, *maxTurns)
+	return runCLI(ctx, args, *maxTurns, *logDir)
 }
 
-func serveHTTP(ctx context.Context, addr string, maxTurns int) error {
-	srv, err := server.New(ctx, maxTurns)
+func serveHTTP(ctx context.Context, addr string, maxTurns int, logDir string) error {
+	srv, err := server.New(ctx, maxTurns, logDir)
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,7 @@ func serveHTTP(ctx context.Context, addr string, maxTurns int) error {
 	return err
 }
 
-func runCLI(ctx context.Context, args []string, maxTurns int) error {
+func runCLI(ctx context.Context, args []string, maxTurns int, logDir string) error {
 	baseBranch, err := gitutil.CurrentBranch(ctx)
 	if err != nil {
 		return fmt.Errorf("determining current branch: %w", err)
@@ -63,7 +64,7 @@ func runCLI(ctx context.Context, args []string, maxTurns int) error {
 		}
 	}
 
-	runner := &task.Runner{BaseBranch: baseBranch, MaxTurns: maxTurns}
+	runner := &task.Runner{BaseBranch: baseBranch, MaxTurns: maxTurns, LogDir: logDir}
 
 	results := make([]task.Result, len(tasks))
 	var wg sync.WaitGroup

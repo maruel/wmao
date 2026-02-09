@@ -18,7 +18,8 @@ import (
 // prompt. It streams NDJSON from stdout and returns the final Result.
 //
 // All intermediate messages are sent to msgCh for logging/observability.
-func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<- Message) (*ResultMessage, error) {
+// If logW is non-nil, every raw NDJSON line (input and output) is written to it.
+func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
 	args := []string{
 		container,
 		"claude", "-p",
@@ -46,11 +47,11 @@ func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<-
 	}
 
 	// Send the user message as NDJSON on stdin, then close to signal EOF.
-	if err := writeUserMessage(stdin, task); err != nil {
+	if err := writeUserMessage(stdin, task, logW); err != nil {
 		return nil, fmt.Errorf("write prompt: %w", err)
 	}
 
-	result, parseErr := readMessages(stdout, msgCh)
+	result, parseErr := readMessages(stdout, msgCh, logW)
 
 	if err := cmd.Wait(); err != nil {
 		// If we got a result, prefer it over the exit error.
@@ -80,21 +81,31 @@ type userInputContent struct {
 }
 
 // writeUserMessage writes a single user message to w and closes it.
-func writeUserMessage(w io.WriteCloser, prompt string) error {
+// If logW is non-nil, the same JSON line is also written to the log.
+func writeUserMessage(w io.WriteCloser, prompt string, logW io.Writer) error {
 	msg := userInputMessage{
 		Type:    "user",
 		Message: userInputContent{Role: "user", Content: prompt},
 	}
-	if err := json.NewEncoder(w).Encode(msg); err != nil {
+	data, err := json.Marshal(msg)
+	if err != nil {
 		_ = w.Close()
 		return err
+	}
+	data = append(data, '\n')
+	if _, err := w.Write(data); err != nil {
+		_ = w.Close()
+		return err
+	}
+	if logW != nil {
+		_, _ = logW.Write(data)
 	}
 	return w.Close()
 }
 
 // readMessages reads NDJSON lines from r, dispatches to msgCh, and returns
-// the terminal ResultMessage.
-func readMessages(r io.Reader, msgCh chan<- Message) (*ResultMessage, error) {
+// the terminal ResultMessage. If logW is non-nil, each raw line is written to it.
+func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
 	scanner := bufio.NewScanner(r)
 	// Claude can produce long lines (e.g., base64 images in tool results).
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
@@ -104,6 +115,10 @@ func readMessages(r io.Reader, msgCh chan<- Message) (*ResultMessage, error) {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
+		}
+		if logW != nil {
+			_, _ = logW.Write(line)
+			_, _ = logW.Write([]byte{'\n'})
 		}
 		msg, err := parseMessage(line)
 		if err != nil {

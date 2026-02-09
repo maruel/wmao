@@ -1,9 +1,30 @@
 package agent
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
+
+func TestWriteUserMessageLog(t *testing.T) {
+	var buf bytes.Buffer
+	// nopCloser wraps a Writer to satisfy WriteCloser.
+	wc := nopWriteCloser{&buf}
+	var logBuf bytes.Buffer
+	if err := writeUserMessage(wc, "hello", &logBuf); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != logBuf.String() {
+		t.Errorf("stdin and log differ:\nstdin: %q\nlog:   %q", buf.String(), logBuf.String())
+	}
+	if !strings.Contains(buf.String(), `"content":"hello"`) {
+		t.Errorf("unexpected output: %s", buf.String())
+	}
+}
+
+type nopWriteCloser struct{ *bytes.Buffer }
+
+func (nopWriteCloser) Close() error { return nil }
 
 func TestParseMessage(t *testing.T) {
 	t.Run("SystemInit", func(t *testing.T) {
@@ -76,14 +97,15 @@ func TestParseMessage(t *testing.T) {
 
 func TestReadMessages(t *testing.T) {
 	t.Run("FullStream", func(t *testing.T) {
-		input := strings.Join([]string{
+		lines := []string{
 			`{"type":"system","subtype":"init","cwd":"/","session_id":"s","tools":[],"model":"m","claude_code_version":"1","uuid":"u"}`,
 			`{"type":"assistant","message":{"model":"m","id":"i","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{}},"session_id":"s","uuid":"u"}`,
 			`{"type":"result","subtype":"success","is_error":false,"duration_ms":100,"num_turns":1,"result":"hi","session_id":"s","total_cost_usd":0.01,"usage":{},"uuid":"u"}`,
-		}, "\n")
+		}
+		input := strings.Join(lines, "\n")
 
 		ch := make(chan Message, 16)
-		result, err := readMessages(strings.NewReader(input), ch)
+		result, err := readMessages(strings.NewReader(input), ch, nil)
 		close(ch)
 		if err != nil {
 			t.Fatal(err)
@@ -101,6 +123,30 @@ func TestReadMessages(t *testing.T) {
 		}
 		if count != 3 {
 			t.Errorf("message count = %d, want 3", count)
+		}
+	})
+	t.Run("LogWriter", func(t *testing.T) {
+		lines := []string{
+			`{"type":"system","subtype":"init","cwd":"/","session_id":"s","tools":[],"model":"m","claude_code_version":"1","uuid":"u"}`,
+			`{"type":"result","subtype":"success","is_error":false,"duration_ms":100,"num_turns":1,"result":"ok","session_id":"s","total_cost_usd":0.01,"usage":{},"uuid":"u"}`,
+		}
+		input := strings.Join(lines, "\n")
+
+		var buf bytes.Buffer
+		result, err := readMessages(strings.NewReader(input), nil, &buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result == nil {
+			t.Fatal("expected result")
+		}
+
+		// Each input line should appear in the log, newline-terminated.
+		logged := buf.String()
+		for _, line := range lines {
+			if !strings.Contains(logged, line+"\n") {
+				t.Errorf("log missing line: %s", line)
+			}
 		}
 	})
 }

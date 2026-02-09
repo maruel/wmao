@@ -5,7 +5,10 @@ package task
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -95,6 +98,7 @@ func (t *Task) addMessage(m agent.Message) {
 type Runner struct {
 	BaseBranch string
 	MaxTurns   int
+	LogDir     string // If set, raw JSONL session logs are written here.
 
 	setupMu sync.Mutex // Serializes branch creation + md start.
 	pushMu  sync.Mutex // Serializes git push to origin.
@@ -131,7 +135,9 @@ func (r *Runner) Run(ctx context.Context, t *Task) Result {
 	if maxTurns == 0 {
 		maxTurns = r.MaxTurns
 	}
-	result, err := agent.Run(ctx, name, t.Prompt, maxTurns, msgCh)
+	logW, closeLog := r.openLog(t.Prompt)
+	defer closeLog()
+	result, err := agent.Run(ctx, name, t.Prompt, maxTurns, msgCh, logW)
 	close(msgCh)
 	if err != nil {
 		t.State = StateFailed
@@ -224,4 +230,23 @@ func slugify(s string) string {
 		s = strings.TrimRight(s, "-")
 	}
 	return s
+}
+
+// openLog creates a JSONL log file in LogDir. Returns a nil writer and a no-op
+// closer if LogDir is empty or the file cannot be created.
+func (r *Runner) openLog(prompt string) (w io.Writer, closeFn func()) {
+	if r.LogDir == "" {
+		return nil, func() {}
+	}
+	if err := os.MkdirAll(r.LogDir, 0o750); err != nil {
+		slog.Warn("failed to create log dir", "dir", r.LogDir, "err", err)
+		return nil, func() {}
+	}
+	name := time.Now().Format("20060102T150405") + "-" + slugify(prompt) + ".jsonl"
+	f, err := os.Create(filepath.Join(r.LogDir, name)) //nolint:gosec // name is derived from slugify, not arbitrary user input.
+	if err != nil {
+		slog.Warn("failed to create log file", "err", err)
+		return nil, func() {}
+	}
+	return f, func() { _ = f.Close() }
 }

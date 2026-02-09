@@ -46,13 +46,13 @@ type taskJSON struct {
 }
 
 // New creates a new Server.
-func New(ctx context.Context, maxTurns int) (*Server, error) {
+func New(ctx context.Context, maxTurns int, logDir string) (*Server, error) {
 	branch, err := gitutil.CurrentBranch(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		runner: &task.Runner{BaseBranch: branch, MaxTurns: maxTurns},
+		runner: &task.Runner{BaseBranch: branch, MaxTurns: maxTurns, LogDir: logDir},
 	}, nil
 }
 
