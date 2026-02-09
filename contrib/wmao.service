@@ -15,7 +15,7 @@ Environment=PATH=%h/go/bin:%h/src/md:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/go/bin/wmao -http :8080 -root %h/wmao -logs %h/wmao/logs
 WorkingDirectory=%h/wmao
 Restart=always
-RestartSec=5s
+RestartSec=1s
 
 # --- Security Hardening ---
 
