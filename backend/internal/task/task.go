@@ -83,6 +83,7 @@ type Task struct {
 	Branch    string
 	Container string
 	State     State
+	SessionID string // Claude Code session ID, captured from SystemInitMessage.
 	StartedAt time.Time
 
 	mu       sync.Mutex
@@ -107,6 +108,10 @@ func (t *Task) addMessage(m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)
+	// Capture session ID from the init message.
+	if init, ok := m.(*agent.SystemInitMessage); ok && init.SessionID != "" {
+		t.SessionID = init.SessionID
+	}
 	// Transition to waiting when a result arrives while running.
 	if _, ok := m.(*agent.ResultMessage); ok && t.State == StateRunning {
 		t.State = StateWaiting
@@ -222,6 +227,68 @@ type Runner struct {
 	pushMu   sync.Mutex // Serializes git push to origin.
 }
 
+// Init sets nextID past any existing wmao/w* branches so that restarts don't
+// waste attempts on branches that already exist.
+func (r *Runner) Init(ctx context.Context) error {
+	r.branchMu.Lock()
+	defer r.branchMu.Unlock()
+	highest, err := gitutil.MaxBranchSeqNum(ctx, r.Dir)
+	if err != nil {
+		return err
+	}
+	if highest >= r.nextID {
+		r.nextID = highest + 1
+	}
+	return nil
+}
+
+// Reconnect starts a new Claude session in an existing container, resuming
+// the previous conversation if a SessionID was captured. The caller must use
+// SendInput to provide the next prompt after reconnecting.
+func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
+	t.mu.Lock()
+	if t.session != nil {
+		t.mu.Unlock()
+		return errors.New("session already active")
+	}
+	if t.Container == "" {
+		t.mu.Unlock()
+		return errors.New("no container to reconnect to")
+	}
+	t.State = StateRunning
+	t.mu.Unlock()
+
+	msgCh := make(chan agent.Message, 256)
+	go func() {
+		for m := range msgCh {
+			t.addMessage(m)
+		}
+	}()
+
+	maxTurns := t.MaxTurns
+	if maxTurns == 0 {
+		maxTurns = r.MaxTurns
+	}
+	logW, closeLog := r.openLog(t.Branch)
+
+	session, err := agent.Start(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
+	if err != nil {
+		closeLog()
+		close(msgCh)
+		t.mu.Lock()
+		t.State = StateWaiting
+		t.mu.Unlock()
+		return fmt.Errorf("reconnect: %w", err)
+	}
+
+	t.mu.Lock()
+	t.session = session
+	t.msgCh = msgCh
+	t.closeLog = closeLog
+	t.mu.Unlock()
+	return nil
+}
+
 // Run executes the full task lifecycle (single-shot). It is meant to be
 // called in a goroutine. The result is returned; the task is self-contained.
 func (r *Runner) Run(ctx context.Context, t *Task) Result {
@@ -267,7 +334,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	}
 	logW, closeLog := r.openLog(t.Branch)
 
-	session, err := agent.Start(ctx, name, maxTurns, msgCh, logW)
+	session, err := agent.Start(ctx, name, maxTurns, msgCh, logW, "")
 	if err != nil {
 		closeLog()
 		close(msgCh)
@@ -336,11 +403,12 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateEnded}
 	}
 
-	if session == nil {
+	// No session and no container means nothing to do.
+	if session == nil && name == "" {
 		t.State = StateFailed
 		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: errors.New("no active session")}
 	}
-	if waitErr != nil {
+	if session != nil && waitErr != nil {
 		t.State = StateFailed
 		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateFailed, Err: waitErr}
 	}
@@ -378,18 +446,21 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 		slog.Warn("failed to kill container", "container", name, "err", err)
 	}
 
-	return Result{
-		Task:        t.Prompt,
-		Repo:        t.Repo,
-		Branch:      t.Branch,
-		Container:   name,
-		State:       StateDone,
-		DiffStat:    diffStat,
-		CostUSD:     result.TotalCostUSD,
-		DurationMs:  result.DurationMs,
-		NumTurns:    result.NumTurns,
-		AgentResult: result.Result,
+	res := Result{
+		Task:      t.Prompt,
+		Repo:      t.Repo,
+		Branch:    t.Branch,
+		Container: name,
+		State:     StateDone,
+		DiffStat:  diffStat,
 	}
+	if result != nil {
+		res.CostUSD = result.TotalCostUSD
+		res.DurationMs = result.DurationMs
+		res.NumTurns = result.NumTurns
+		res.AgentResult = result.Result
+	}
+	return res
 }
 
 // setup creates the branch and starts the container. Must be called under

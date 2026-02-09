@@ -79,12 +79,16 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		}
 		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch}
 		s.repos = append(s.repos, ri)
-		s.runners[rel] = &task.Runner{
+		runner := &task.Runner{
 			BaseBranch: branch,
 			Dir:        abs,
 			MaxTurns:   maxTurns,
 			LogDir:     logDir,
 		}
+		if err := runner.Init(ctx); err != nil {
+			slog.Warn("failed to init runner nextID", "path", abs, "err", err)
+		}
+		s.runners[rel] = runner
 		slog.Info("discovered repo", "path", rel, "branch", branch)
 	}
 
@@ -108,6 +112,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/end", handleWithTask(s, s.endTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/pull", handleWithTask(s, s.pullTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
+	mux.HandleFunc("POST /api/v1/tasks/{id}/reconnect", handleWithTask(s, s.reconnectTask))
 
 	// Serve embedded frontend.
 	dist, err := fs.Sub(frontend.Files, "dist")
@@ -275,6 +280,18 @@ func (s *Server) pullTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 	return &dto.PullResp{Status: "pulled", DiffStat: diffStat}, nil
 }
 
+func (s *Server) reconnectTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
+	t := entry.task
+	if t.State != task.StateWaiting {
+		return nil, dto.Conflict("task is not in waiting state")
+	}
+	runner := s.runners[t.Repo]
+	if err := runner.Reconnect(ctx, t); err != nil {
+		return nil, dto.InternalError(err.Error())
+	}
+	return &dto.StatusResp{Status: "reconnected"}, nil
+}
+
 func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
 	t := entry.task
 	switch t.State {
@@ -324,20 +341,11 @@ func (s *Server) adoptContainers(ctx context.Context) {
 
 			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
 
-			// Goroutine waits for End, then kills the container.
+			// Reuse the standard Finish path: waits for Finish/End, then
+			// does pull→push→kill (or just kill if End).
 			go func() {
 				defer close(entry.done)
-				select {
-				case <-t.Done():
-				case <-ctx.Done():
-					return
-				}
-				t.State = task.StateEnded
-				slog.Info("ending adopted container", "container", t.Container)
-				if err := runner.KillContainer(ctx, t.Branch); err != nil {
-					slog.Warn("failed to kill adopted container", "container", t.Container, "err", err)
-				}
-				result := task.Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateEnded}
+				result := runner.Finish(ctx, t)
 				s.mu.Lock()
 				entry.result = &result
 				s.mu.Unlock()

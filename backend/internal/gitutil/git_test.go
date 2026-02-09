@@ -2,6 +2,7 @@ package gitutil
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -64,6 +65,49 @@ func TestDiscoverReposDepthZero(t *testing.T) {
 	}
 	if len(repos) != 1 || repos[0] != root {
 		t.Errorf("repos = %v, want [%s]", repos, root)
+	}
+}
+
+func TestMaxBranchSeqNum(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+
+	// Initialize a real git repo.
+	for _, args := range [][]string{
+		{"init"},
+		{"commit", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // test helper, args are constant.
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// No wmao branches → -1.
+	n, err := MaxBranchSeqNum(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != -1 {
+		t.Fatalf("got %d, want -1", n)
+	}
+
+	// Create some branches.
+	for _, b := range []string{"wmao/w0", "wmao/w3", "wmao/w7", "other/branch"} {
+		cmd := exec.CommandContext(ctx, "git", "branch", b) //nolint:gosec // test helper, args are constant.
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git branch %s: %v\n%s", b, err, out)
+		}
+	}
+
+	n, err = MaxBranchSeqNum(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 7 {
+		t.Fatalf("got %d, want 7", n)
 	}
 }
 

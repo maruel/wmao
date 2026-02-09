@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -70,6 +71,33 @@ func RepoName(ctx context.Context, dir string) (string, error) {
 	top := strings.TrimSpace(string(out))
 	parts := strings.Split(top, "/")
 	return parts[len(parts)-1], nil
+}
+
+// MaxBranchSeqNum finds the highest sequence number N among branches matching
+// "wmao/wN". Returns -1 if no matching branches exist.
+func MaxBranchSeqNum(ctx context.Context, dir string) (int, error) {
+	cmd := exec.CommandContext(ctx, "git", "branch", "--list", "wmao/w*", "--format=%(refname:short)")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return -1, fmt.Errorf("git branch --list: %w", err)
+	}
+	highest := -1
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "wmao/w") {
+			continue
+		}
+		numStr := line[len("wmao/w"):]
+		n, err := strconv.Atoi(numStr)
+		if err != nil {
+			continue
+		}
+		if n > highest {
+			highest = n
+		}
+	}
+	return highest, nil
 }
 
 // DiscoverRepos recursively walks root up to maxDepth levels, returning

@@ -29,8 +29,9 @@ type Session struct {
 
 // Start launches a Claude Code process in the given container. Messages are
 // sent to msgCh as they arrive. The caller must call Send to provide the
-// initial prompt, then Wait for the result.
-func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*Session, error) {
+// initial prompt, then Wait for the result. If resumeSessionID is non-empty,
+// the session is resumed via --resume.
+func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Message, logW io.Writer, resumeSessionID string) (*Session, error) {
 	args := []string{
 		container,
 		"claude", "-p",
@@ -41,6 +42,9 @@ func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Mes
 	}
 	if maxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(maxTurns))
+	}
+	if resumeSessionID != "" {
+		args = append(args, "--resume", resumeSessionID)
 	}
 
 	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // args are not user-controlled.
@@ -112,7 +116,7 @@ func (s *Session) Wait() (*ResultMessage, error) {
 // All intermediate messages are sent to msgCh for logging/observability.
 // If logW is non-nil, every raw NDJSON line (input and output) is written to it.
 func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
-	s, err := Start(ctx, container, maxTurns, msgCh, logW)
+	s, err := Start(ctx, container, maxTurns, msgCh, logW, "")
 	if err != nil {
 		return nil, err
 	}
