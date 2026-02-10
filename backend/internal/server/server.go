@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,6 +37,7 @@ type Server struct {
 	runners  map[string]*task.Runner // keyed by RelPath
 	mu       sync.Mutex
 	tasks    []*taskEntry
+	changed  chan struct{} // closed on task mutation; replaced under mu
 	maxTurns int
 	logDir   string
 }
@@ -64,6 +66,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 
 	s := &Server{
 		runners:  make(map[string]*task.Runner, len(absPaths)),
+		changed:  make(chan struct{}),
 		maxTurns: maxTurns,
 		logDir:   logDir,
 	}
@@ -115,6 +118,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/reconnect", handleWithTask(s, s.reconnectTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/takeover", handleWithTask(s, s.takeoverTask))
+	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
 	// Serve embedded frontend with SPA fallback: serve the file if it exists,
 	// otherwise serve index.html for client-side routing.
@@ -194,6 +198,7 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 		s.mu.Lock()
 		id := len(s.tasks)
 		s.tasks = append(s.tasks, entry)
+		s.taskChanged()
 		s.mu.Unlock()
 
 		// Run in background using the server context, not the request context.
@@ -203,12 +208,14 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 				result := task.Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
 				s.mu.Lock()
 				entry.result = &result
+				s.taskChanged()
 				s.mu.Unlock()
 				return
 			}
 			result := runner.Finish(ctx, t)
 			s.mu.Lock()
 			entry.result = &result
+			s.taskChanged()
 			s.mu.Unlock()
 		}()
 
@@ -263,6 +270,54 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
 		flusher.Flush()
 		idx++
+	}
+}
+
+// handleEvents streams the task list as SSE. It pushes immediately when a
+// server-handled mutation fires the changed channel, and falls back to a
+// 2-second ticker to catch runner-internal state transitions.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, dto.InternalError("streaming not supported"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var prev []byte
+	for {
+		s.mu.Lock()
+		out := make([]dto.TaskJSON, len(s.tasks))
+		for i, e := range s.tasks {
+			out[i] = toJSON(i, e)
+		}
+		ch := s.changed
+		s.mu.Unlock()
+
+		data, err := json.Marshal(out)
+		if err != nil {
+			slog.Warn("marshal task list", "err", err)
+			return
+		}
+		if !bytes.Equal(data, prev) {
+			_, _ = fmt.Fprintf(w, "event: tasks\ndata: %s\n\n", data)
+			flusher.Flush()
+			prev = data
+		}
+
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ch:
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -405,6 +460,7 @@ func (s *Server) adoptContainers(ctx context.Context) {
 
 			s.mu.Lock()
 			s.tasks = append(s.tasks, entry)
+			s.taskChanged()
 			s.mu.Unlock()
 
 			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
@@ -416,6 +472,7 @@ func (s *Server) adoptContainers(ctx context.Context) {
 				result := runner.Finish(ctx, t)
 				s.mu.Lock()
 				entry.result = &result
+				s.taskChanged()
 				s.mu.Unlock()
 			}()
 		}
@@ -436,6 +493,20 @@ func (s *Server) getTask(r *http.Request) (*taskEntry, error) {
 		return nil, dto.NotFound("task")
 	}
 	return s.tasks[id], nil
+}
+
+// taskChanged closes the current changed channel and replaces it. Must be
+// called while holding s.mu.
+func (s *Server) taskChanged() {
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+
+// notifyTaskChange signals that task data may have changed.
+func (s *Server) notifyTaskChange() {
+	s.mu.Lock()
+	s.taskChanged()
+	s.mu.Unlock()
 }
 
 func toJSON(id int, e *taskEntry) dto.TaskJSON {

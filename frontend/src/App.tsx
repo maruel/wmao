@@ -1,8 +1,8 @@
 // Main application component for wmao web UI.
-import { createSignal, createEffect, For, Index, Show, Switch, Match, onMount } from "solid-js";
+import { createSignal, createEffect, For, Index, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
-import { listRepos, listTasks, createTask } from "@sdk/api.gen";
+import { listRepos, createTask } from "@sdk/api.gen";
 import TaskView from "./TaskView";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
@@ -51,6 +51,24 @@ export default function App() {
     }
   });
 
+  // Subscribe to task list updates via SSE.
+  const es = new EventSource("/api/v1/events");
+  es.addEventListener("tasks", (e) => {
+    try {
+      const updated = JSON.parse(e.data) as TaskJSON[];
+      for (const t of updated) {
+        if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
+          notifyWaiting(t.id, t.task);
+        }
+      }
+      prevStates = new Map(updated.map((t) => [t.id, t.state]));
+      setTasks(updated);
+    } catch {
+      // Ignore unparseable messages.
+    }
+  });
+  onCleanup(() => es.close());
+
   // Navigate to a newly created task once its branch becomes available.
   createEffect(() => {
     const id = pendingNavId();
@@ -71,33 +89,11 @@ export default function App() {
     try {
       const data = await createTask({ prompt: p, repo });
       setPrompt("");
-      await refreshTasks();
-      // If the task already has a branch, navigate immediately.
-      const created = tasks().find((item) => item.id === data.id);
-      if (created && created.branch) {
-        navigate(taskUrl(created));
-      } else {
-        setPendingNavId(data.id);
-      }
+      setPendingNavId(data.id);
     } finally {
       setSubmitting(false);
     }
   }
-
-  async function refreshTasks() {
-    const updated = await listTasks();
-    for (const t of updated) {
-      if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
-        notifyWaiting(t.id, t.task);
-      }
-    }
-    prevStates = new Map(updated.map((t) => [t.id, t.state]));
-    setTasks(updated);
-  }
-
-  // Poll for updates.
-  setInterval(refreshTasks, 5000);
-  refreshTasks();
 
   // Most recent first; adopted tasks last.
   const sortedTasks = () =>

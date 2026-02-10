@@ -21,7 +21,7 @@ func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 }
 
 func TestHandleTaskEventsNotFound(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/99/events", http.NoBody)
 	req.SetPathValue("id", "99")
 	w := httptest.NewRecorder()
@@ -36,7 +36,7 @@ func TestHandleTaskEventsNotFound(t *testing.T) {
 }
 
 func TestHandleTaskEventsInvalidID(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/abc/events", http.NoBody)
 	req.SetPathValue("id", "abc")
 	w := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestHandleTaskEventsInvalidID(t *testing.T) {
 }
 
 func TestHandleTaskInputNotRunning(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	s.tasks = append(s.tasks, &taskEntry{
 		task: &task.Task{Prompt: "test"},
 		done: make(chan struct{}),
@@ -72,7 +72,7 @@ func TestHandleTaskInputNotRunning(t *testing.T) {
 }
 
 func TestHandleTaskInputEmptyPrompt(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	s.tasks = append(s.tasks, &taskEntry{
 		task: &task.Task{Prompt: "test"},
 		done: make(chan struct{}),
@@ -93,7 +93,7 @@ func TestHandleTaskInputEmptyPrompt(t *testing.T) {
 }
 
 func TestHandleFinishNotWaiting(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	s.tasks = append(s.tasks, &taskEntry{
 		task: &task.Task{Prompt: "test", State: task.StatePending},
 		done: make(chan struct{}),
@@ -115,7 +115,7 @@ func TestHandleFinishNotWaiting(t *testing.T) {
 func TestHandleFinishWaiting(t *testing.T) {
 	tk := &task.Task{Prompt: "test", State: task.StateWaiting}
 	tk.InitDoneCh()
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	s.tasks = append(s.tasks, &taskEntry{
 		task: tk,
 		done: make(chan struct{}),
@@ -142,6 +142,7 @@ func TestHandleCreateTaskReturnsID(t *testing.T) {
 		runners: map[string]*task.Runner{
 			"myrepo": {BaseBranch: "main", Dir: t.TempDir()},
 		},
+		changed: make(chan struct{}),
 	}
 	handler := s.handleCreateTask(t.Context())
 
@@ -163,7 +164,7 @@ func TestHandleCreateTaskReturnsID(t *testing.T) {
 }
 
 func TestHandleCreateTaskMissingRepo(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	handler := s.handleCreateTask(t.Context())
 
 	body := strings.NewReader(`{"prompt":"test task"}`)
@@ -181,7 +182,7 @@ func TestHandleCreateTaskMissingRepo(t *testing.T) {
 }
 
 func TestHandleCreateTaskUnknownRepo(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	handler := s.handleCreateTask(t.Context())
 
 	body := strings.NewReader(`{"prompt":"test","repo":"nonexistent"}`)
@@ -199,7 +200,7 @@ func TestHandleCreateTaskUnknownRepo(t *testing.T) {
 }
 
 func TestHandleCreateTaskUnknownField(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	handler := s.handleCreateTask(t.Context())
 
 	body := strings.NewReader(`{"prompt":"test","repo":"r","bogus":true}`)
@@ -217,7 +218,7 @@ func TestHandleCreateTaskUnknownField(t *testing.T) {
 }
 
 func TestHandleTakeoverNotWaiting(t *testing.T) {
-	s := &Server{runners: map[string]*task.Runner{}}
+	s := &Server{runners: map[string]*task.Runner{}, changed: make(chan struct{})}
 	s.tasks = append(s.tasks, &taskEntry{
 		task: &task.Task{Prompt: "test", State: task.StateRunning},
 		done: make(chan struct{}),
@@ -243,6 +244,7 @@ func TestHandleListRepos(t *testing.T) {
 			{RelPath: "repoB", AbsPath: "/src/repoB", BaseBranch: "develop"},
 		},
 		runners: map[string]*task.Runner{},
+		changed: make(chan struct{}),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos", http.NoBody)

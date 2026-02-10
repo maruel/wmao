@@ -59,6 +59,9 @@ func handleWithTask[In any, PtrIn interface {
 			return
 		}
 		out, err := fn(r.Context(), entry, in)
+		if err == nil {
+			s.notifyTaskChange()
+		}
 		writeJSONResponse(w, out, err)
 	}
 }
