@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
 import TaskView from "./TaskView";
+import AutoResizeTextarea from "./AutoResizeTextarea";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
 
@@ -157,10 +158,10 @@ export default function App() {
             {(r) => <option value={r.path}>{r.path}</option>}
           </For>
         </select>
-        <input
-          type="text"
+        <AutoResizeTextarea
           value={prompt()}
-          onInput={(e) => setPrompt(e.currentTarget.value)}
+          onInput={setPrompt}
+          onSubmit={submitTask}
           placeholder="Describe a task..."
           disabled={submitting()}
           class={styles.promptInput}

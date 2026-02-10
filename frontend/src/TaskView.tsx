@@ -2,6 +2,7 @@
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
 import { sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
 import { Marked } from "marked";
+import AutoResizeTextarea from "./AutoResizeTextarea";
 import styles from "./TaskView.module.css";
 
 interface ContentBlock {
@@ -209,10 +210,10 @@ export default function TaskView(props: Props) {
 
       <Show when={isActive()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }} class={styles.inputForm}>
-          <input
-            type="text"
+          <AutoResizeTextarea
             value={input()}
-            onInput={(e) => setInput(e.currentTarget.value)}
+            onInput={setInput}
+            onSubmit={sendInput}
             placeholder="Send message to agent..."
             disabled={sending()}
             class={styles.textInput}
@@ -567,12 +568,11 @@ function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; on
                   </button>
                 </div>
                 <Show when={selections().get(qIdx())?.has("__other__")}>
-                  <input
-                    type="text"
+                  <AutoResizeTextarea
                     class={styles.askOtherInput}
                     placeholder="Type your answer..."
                     value={otherTexts().get(qIdx()) ?? ""}
-                    onInput={(e) => setOtherText(qIdx(), e.currentTarget.value)}
+                    onInput={(v) => setOtherText(qIdx(), v)}
                     disabled={!canInteract()}
                   />
                 </Show>

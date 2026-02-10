@@ -38,7 +38,7 @@
   display: flex;
   gap: 0.5rem;
   margin-bottom: 1rem;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .repoSelect {
@@ -47,7 +47,12 @@
 
 .promptInput {
   flex: 1;
-  padding: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  resize: none;
+  font: inherit;
+  line-height: 1.4;
+  max-height: 10rem;
+  overflow-y: auto;
 }
 
 .layout {
@@ -195,6 +200,10 @@
   .promptInput {
     width: 100%;
     box-sizing: border-box;
+  }
+
+  .promptInput {
+    min-height: 2.5rem;
   }
 
   .layout {

@@ -48,11 +48,17 @@
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  align-items: flex-start;
 }
 
 .textInput {
   flex: 1;
-  padding: 0.4rem;
+  padding: 0.25rem 0.4rem;
+  resize: none;
+  font: inherit;
+  line-height: 1.4;
+  max-height: 10rem;
+  overflow-y: auto;
 }
 
 .btn {
@@ -367,6 +373,11 @@
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 0.8rem;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.4;
+  max-height: 10rem;
+  overflow-y: auto;
 }
 
 .askSubmit {
@@ -400,6 +411,7 @@
     width: 100%;
     flex: none;
     box-sizing: border-box;
+    min-height: 2.5rem;
   }
 
   .btn {
