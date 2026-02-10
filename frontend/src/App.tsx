@@ -1,5 +1,5 @@
 // Main application component for wmao web UI.
-import { createSignal, createEffect, For, Show, Switch, Match, onMount } from "solid-js";
+import { createSignal, createEffect, For, Index, Show, Switch, Match, onMount } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
@@ -148,38 +148,38 @@ export default function App() {
           <Show when={tasks().length === 0}>
             <p class={styles.placeholder}>No tasks yet.</p>
           </Show>
-          <For each={sortedTasks()}>
+          <Index each={sortedTasks()}>
             {(t) => (
               <div
                 onClick={() => {
-                  if (t.branch) {
-                    navigate(taskUrl(t));
+                  if (t().branch) {
+                    navigate(taskUrl(t()));
                   }
                 }}
-                class={`${styles.taskCard} ${selectedId() === t.id ? styles.taskCardSelected : ""}`}>
+                class={`${styles.taskCard} ${selectedId() === t().id ? styles.taskCardSelected : ""}`}>
                 <div class={styles.taskHeader}>
-                  <strong class={styles.taskTitle}>{t.task}</strong>
-                  <span class={styles.stateBadge} style={{ background: stateColor(t.state) }}>
-                    {t.state}
+                  <strong class={styles.taskTitle}>{t().task}</strong>
+                  <span class={styles.stateBadge} style={{ background: stateColor(t().state) }}>
+                    {t().state}
                   </span>
                 </div>
-                <Show when={t.repo}>
-                  <div class={styles.repoLabel}>{t.repo}</div>
+                <Show when={t().repo}>
+                  <div class={styles.repoLabel}>{t().repo}</div>
                 </Show>
-                <Show when={t.branch}>
-                  <div class={styles.branchLabel}>{t.branch}</div>
+                <Show when={t().branch}>
+                  <div class={styles.branchLabel}>{t().branch}</div>
                 </Show>
-                <Show when={t.costUSD > 0}>
+                <Show when={t().costUSD > 0}>
                   <span class={styles.costLabel}>
-                    ${t.costUSD.toFixed(4)} &middot; {(t.durationMs / 1000).toFixed(1)}s
+                    ${t().costUSD.toFixed(4)} &middot; {(t().durationMs / 1000).toFixed(1)}s
                   </span>
                 </Show>
-                <Show when={t.error}>
-                  <div class={styles.errorLabel}>{t.error}</div>
+                <Show when={t().error}>
+                  <div class={styles.errorLabel}>{t().error}</div>
                 </Show>
               </div>
             )}
-          </For>
+          </Index>
         </div>
         <Show when={!sidebarOpen()}>
           <button class={styles.expandBtn} onClick={() => setSidebarOpen(true)} title="Expand sidebar">&rsaquo;</button>
