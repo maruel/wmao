@@ -394,17 +394,6 @@ func (r *Runner) Takeover(ctx context.Context, t *Task) error {
 	return nil
 }
 
-// Run executes the full task lifecycle (single-shot). It is meant to be
-// called in a goroutine. The result is returned; the task is self-contained.
-func (r *Runner) Run(ctx context.Context, t *Task) Result {
-	if err := r.Start(ctx, t); err != nil {
-		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: err}
-	}
-	// Single-shot: finish immediately.
-	t.Finish()
-	return r.Finish(ctx, t)
-}
-
 // Start performs branch/container setup, starts the agent session, and sends
 // the initial prompt. The session is left open for follow-up messages via
 // SendInput. Call Finish (or t.Finish + r.Finish) to close the session and

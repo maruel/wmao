@@ -231,7 +231,7 @@ func TestTaskEndIdempotent(t *testing.T) {
 // initTestRepo creates a bare "remote" and a local clone with one commit on
 // baseBranch. Returns the clone directory. origin points to the bare repo so
 // git fetch/push work locally.
-func initTestRepo(t *testing.T, baseBranch string) string { //nolint:unparam // test helper, flexibility is intentional
+func initTestRepo(t *testing.T, baseBranch string) string {
 	t.Helper()
 	dir := t.TempDir()
 	bare := filepath.Join(dir, "remote.git")
@@ -358,44 +358,6 @@ func TestRunnerInitSkipsExisting(t *testing.T) {
 	}
 	if r.nextID != 4 {
 		t.Errorf("nextID = %d, want 4", r.nextID)
-	}
-}
-
-func TestRunnerRun(t *testing.T) {
-	clone := initTestRepo(t, "main")
-	fc := &fakeContainer{}
-	r := &Runner{
-		BaseBranch:   "main",
-		Dir:          clone,
-		MaxTurns:     1,
-		Container:    fc,
-		AgentStartFn: fakeAgentStart,
-	}
-	if err := r.Init(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
-	tk := &Task{Prompt: "test task", Repo: "test"}
-	result := r.Run(t.Context(), tk)
-
-	if result.State != StateDone {
-		t.Fatalf("state = %v, want %v; err=%v", result.State, StateDone, result.Err)
-	}
-	if result.Branch != "wmao/w0" {
-		t.Errorf("branch = %q, want %q", result.Branch, "wmao/w0")
-	}
-	if result.Container == "" {
-		t.Error("container not set in result")
-	}
-
-	// Verify container operations were invoked.
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	if len(fc.started) == 0 {
-		t.Error("container Start was not called")
-	}
-	if !fc.killed {
-		t.Error("container Kill was not called")
 	}
 }
 
