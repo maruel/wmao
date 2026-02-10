@@ -62,6 +62,35 @@ func LoadLogs(logDir string) ([]*LoadedTask, error) {
 	return tasks, nil
 }
 
+// LoadTerminated returns the last n tasks in a terminal state (done, failed,
+// ended) from logDir, sorted by StartedAt descending (most recent first).
+// Returns nil when logDir is empty or no terminated tasks exist.
+func LoadTerminated(logDir string, n int) []*LoadedTask {
+	if logDir == "" || n <= 0 {
+		return nil
+	}
+	all, err := LoadLogs(logDir)
+	if err != nil {
+		slog.Warn("failed to load logs for terminated tasks", "err", err)
+		return nil
+	}
+	var terminated []*LoadedTask
+	for _, lt := range all {
+		// Only include tasks with an explicit wmao_result trailer.
+		// Log files without a trailer may belong to still-running tasks
+		// whose default state is StateFailed.
+		if lt.Result != nil {
+			terminated = append(terminated, lt)
+		}
+	}
+	// LoadLogs returns ascending; reverse for most-recent-first.
+	slices.Reverse(terminated)
+	if len(terminated) > n {
+		terminated = terminated[:n]
+	}
+	return terminated
+}
+
 // loadLogFile parses a single JSONL log file. Returns nil if the file has no
 // valid wmao_meta header.
 func loadLogFile(path string) (_ *LoadedTask, retErr error) {

@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/maruel/wmao/backend/internal/agent"
 	"github.com/maruel/wmao/backend/internal/server/dto"
 	"github.com/maruel/wmao/backend/internal/task"
 )
@@ -246,5 +250,88 @@ func TestHandleListRepos(t *testing.T) {
 	}
 	if repos[1].BaseBranch != "develop" {
 		t.Errorf("repos[1].BaseBranch = %q, want %q", repos[1].BaseBranch, "develop")
+	}
+}
+
+func writeLogFile(t *testing.T, dir, name string, lines ...string) {
+	t.Helper()
+	data := make([]byte, 0, len(lines)*64)
+	for _, l := range lines {
+		data = append(data, l...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestLoadTerminatedTasksOnStartup(t *testing.T) {
+	logDir := t.TempDir()
+
+	// Write 3 terminated task logs.
+	for i, state := range []string{"done", "failed", "ended"} {
+		meta := mustJSON(t, agent.MetaMessage{
+			MessageType: "wmao_meta", Prompt: state + " task", Repo: "r",
+			Branch: "wmao/w" + strings.Repeat("0", i+1), StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+		})
+		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "wmao_result", State: state, CostUSD: float64(i + 1)})
+		writeLogFile(t, logDir, "20260101T0"+strings.Repeat("0", i+1)+"0000-wmao-w"+strings.Repeat("0", i+1)+".jsonl", meta, trailer)
+	}
+
+	s := &Server{
+		runners: map[string]*task.Runner{},
+		changed: make(chan struct{}),
+		logDir:  logDir,
+	}
+	s.loadTerminatedTasks()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.tasks) != 3 {
+		t.Fatalf("len(tasks) = %d, want 3", len(s.tasks))
+	}
+
+	// Verify tasks are in ascending StartedAt order (oldest first).
+	if s.tasks[0].task.Prompt != "done task" {
+		t.Errorf("tasks[0].Prompt = %q, want %q", s.tasks[0].task.Prompt, "done task")
+	}
+	if s.tasks[2].task.Prompt != "ended task" {
+		t.Errorf("tasks[2].Prompt = %q, want %q", s.tasks[2].task.Prompt, "ended task")
+	}
+
+	// Verify result is populated.
+	if s.tasks[0].result == nil {
+		t.Fatal("tasks[0].result is nil")
+	}
+	if s.tasks[0].result.CostUSD != 1.0 {
+		t.Errorf("tasks[0].result.CostUSD = %f, want 1.0", s.tasks[0].result.CostUSD)
+	}
+
+	// Verify done channel is closed (task is terminal).
+	select {
+	case <-s.tasks[0].done:
+	default:
+		t.Error("tasks[0].done not closed")
+	}
+}
+
+func TestLoadTerminatedTasksEmptyLogDir(t *testing.T) {
+	s := &Server{
+		runners: map[string]*task.Runner{},
+		changed: make(chan struct{}),
+		logDir:  "",
+	}
+	s.loadTerminatedTasks()
+	if len(s.tasks) != 0 {
+		t.Errorf("len(tasks) = %d, want 0", len(s.tasks))
 	}
 }

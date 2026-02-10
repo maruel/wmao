@@ -101,6 +101,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		return nil, fmt.Errorf("no usable git repos found under %s", rootDir)
 	}
 
+	s.loadTerminatedTasks()
 	s.adoptContainers(ctx)
 	return s, nil
 }
@@ -401,6 +402,43 @@ func (s *Server) SetRunnerOps(c container.Ops, agentStart func(ctx context.Conte
 	}
 }
 
+// loadTerminatedTasks loads the last 10 terminated tasks from JSONL logs so
+// they appear in the UI immediately after a server restart.
+func (s *Server) loadTerminatedTasks() {
+	if s.logDir == "" {
+		return
+	}
+	loaded := task.LoadTerminated(s.logDir, 10)
+	if len(loaded) == 0 {
+		return
+	}
+	// LoadTerminated returns most-recent-first; reverse so IDs are ascending by
+	// start time and the UI sorts them naturally.
+	for i, j := 0, len(loaded)-1; i < j; i, j = i+1, j-1 {
+		loaded[i], loaded[j] = loaded[j], loaded[i]
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, lt := range loaded {
+		t := &task.Task{
+			Prompt:    lt.Prompt,
+			Repo:      lt.Repo,
+			Branch:    lt.Branch,
+			State:     lt.State,
+			StartedAt: lt.StartedAt,
+		}
+		if lt.Msgs != nil {
+			t.RestoreMessages(lt.Msgs)
+		}
+		done := make(chan struct{})
+		close(done)
+		entry := &taskEntry{task: t, result: lt.Result, done: done}
+		s.tasks = append(s.tasks, entry)
+	}
+	s.taskChanged()
+	slog.Info("loaded terminated tasks from logs", "count", len(loaded))
+}
+
 // adoptContainers discovers preexisting md containers and creates task entries
 // for them so they appear in the UI and can be ended.
 func (s *Server) adoptContainers(ctx context.Context) {
@@ -409,6 +447,17 @@ func (s *Server) adoptContainers(ctx context.Context) {
 		slog.Warn("failed to list containers on startup", "err", err)
 		return
 	}
+
+	// Map branches loaded from terminated task logs to their index in
+	// s.tasks so we can replace stale entries with live containers.
+	s.mu.Lock()
+	branchIdx := make(map[string]int, len(s.tasks))
+	for i, e := range s.tasks {
+		if e.task.Branch != "" {
+			branchIdx[e.task.Branch] = i
+		}
+	}
+	s.mu.Unlock()
 
 	for _, ri := range s.repos {
 		repoName := filepath.Base(ri.AbsPath)
@@ -487,7 +536,12 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			entry := &taskEntry{task: t, done: make(chan struct{})}
 
 			s.mu.Lock()
-			s.tasks = append(s.tasks, entry)
+			if idx, ok := branchIdx[branch]; ok {
+				// Replace the stale terminated entry with the live container.
+				s.tasks[idx] = entry
+			} else {
+				s.tasks = append(s.tasks, entry)
+			}
 			s.taskChanged()
 			s.mu.Unlock()
 

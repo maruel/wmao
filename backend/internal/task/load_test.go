@@ -2,10 +2,12 @@ package task
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maruel/wmao/backend/internal/agent"
 )
@@ -178,6 +180,65 @@ func TestLoadLogs(t *testing.T) {
 		}
 		if len(tasks) != 0 {
 			t.Errorf("len = %d, want 0", len(tasks))
+		}
+	})
+}
+
+func TestLoadTerminated(t *testing.T) {
+	t.Run("EmptyDir", func(t *testing.T) {
+		if got := LoadTerminated("", 10); got != nil {
+			t.Errorf("expected nil, got %d tasks", len(got))
+		}
+	})
+	t.Run("FiltersTerminalOnly", func(t *testing.T) {
+		dir := t.TempDir()
+		// Task with done trailer.
+		meta0 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "t0", Repo: "r", Branch: "wmao/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
+		trailer0 := mustJSON(t, agent.MetaResultMessage{MessageType: "wmao_result", State: "done"})
+		writeLogFile(t, dir, "20260101T000000-wmao-w0.jsonl", meta0, trailer0)
+
+		// Task without trailer (still running — must NOT be loaded).
+		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "t1", Repo: "r", Branch: "wmao/w1", StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)})
+		writeLogFile(t, dir, "20260101T010000-wmao-w1.jsonl", meta1)
+
+		// Task with ended trailer.
+		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "t2", Repo: "r", Branch: "wmao/w2", StartedAt: time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)})
+		trailer2 := mustJSON(t, agent.MetaResultMessage{MessageType: "wmao_result", State: "ended"})
+		writeLogFile(t, dir, "20260101T020000-wmao-w2.jsonl", meta2, trailer2)
+
+		got := LoadTerminated(dir, 10)
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		// Most recent first.
+		if got[0].Prompt != "t2" {
+			t.Errorf("got[0].Prompt = %q, want %q", got[0].Prompt, "t2")
+		}
+		if got[1].Prompt != "t0" {
+			t.Errorf("got[1].Prompt = %q, want %q", got[1].Prompt, "t0")
+		}
+	})
+	t.Run("LimitsToN", func(t *testing.T) {
+		dir := t.TempDir()
+		for i := range 5 {
+			meta := mustJSON(t, agent.MetaMessage{
+				MessageType: "wmao_meta", Prompt: fmt.Sprintf("t%d", i), Repo: "r",
+				Branch: fmt.Sprintf("wmao/w%d", i), StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+			})
+			trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "wmao_result", State: "done"})
+			writeLogFile(t, dir, fmt.Sprintf("20260101T0%d0000-wmao-w%d.jsonl", i, i), meta, trailer)
+		}
+
+		got := LoadTerminated(dir, 3)
+		if len(got) != 3 {
+			t.Fatalf("len = %d, want 3", len(got))
+		}
+		// Most recent first: t4, t3, t2.
+		if got[0].Prompt != "t4" {
+			t.Errorf("got[0].Prompt = %q, want %q", got[0].Prompt, "t4")
+		}
+		if got[2].Prompt != "t2" {
+			t.Errorf("got[2].Prompt = %q, want %q", got[2].Prompt, "t2")
 		}
 	})
 }
