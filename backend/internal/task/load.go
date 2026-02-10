@@ -190,6 +190,13 @@ func LoadBranchLogs(logDir, branch string) *LoadedTask {
 			merged = lt
 		} else {
 			merged.Msgs = append(merged.Msgs, lt.Msgs...)
+			// Later sessions are authoritative for prompt and metadata.
+			if lt.Prompt != "" {
+				merged.Prompt = lt.Prompt
+			}
+			if !lt.StartedAt.IsZero() {
+				merged.StartedAt = lt.StartedAt
+			}
 			if lt.Result != nil {
 				merged.Result = lt.Result
 				merged.State = lt.State

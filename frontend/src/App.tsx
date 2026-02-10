@@ -125,12 +125,13 @@ export default function App() {
     }
   }
 
-  // Most recent first; adopted tasks last.
+  // Most recent first; terminal tasks last.
+  const isTerminal = (s: string) => s === "done" || s === "failed" || s === "ended";
   const sortedTasks = () =>
     [...tasks()].sort((a, b) => {
-      const aAdopted = a.task.startsWith("(adopted)") ? 1 : 0;
-      const bAdopted = b.task.startsWith("(adopted)") ? 1 : 0;
-      if (aAdopted !== bAdopted) return aAdopted - bAdopted;
+      const aT = isTerminal(a.state) ? 1 : 0;
+      const bT = isTerminal(b.state) ? 1 : 0;
+      if (aT !== bT) return aT - bT;
       return b.id - a.id;
     });
 

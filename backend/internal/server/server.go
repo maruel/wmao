@@ -433,7 +433,7 @@ func (s *Server) adoptContainers(ctx context.Context) {
 				continue
 			}
 
-			prompt := "(adopted) " + branch
+			prompt := branch
 			var startedAt time.Time
 
 			// Check whether the relay daemon is alive in this container.
@@ -454,7 +454,7 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			}
 
 			if lt != nil && lt.Prompt != "" {
-				prompt = "(adopted) " + lt.Prompt
+				prompt = lt.Prompt
 				startedAt = lt.StartedAt
 			}
 

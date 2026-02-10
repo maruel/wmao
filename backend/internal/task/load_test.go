@@ -93,6 +93,27 @@ func TestLoadBranchLogs(t *testing.T) {
 			t.Errorf("Prompt = %q, want %q", lt.Prompt, "fix bug")
 		}
 	})
+	t.Run("BranchReusedPromptUpdated", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// First session with original prompt.
+		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "old stale prompt", Repo: "test", Branch: "wmao/w0"})
+		asst1 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
+		writeLogFile(t, dir, "20260101T000000-wmao-w0.jsonl", meta1, asst1)
+
+		// Second session reuses same branch with a new prompt.
+		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "new current prompt", Repo: "test", Branch: "wmao/w0"})
+		asst2 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
+		writeLogFile(t, dir, "20260101T010000-wmao-w0.jsonl", meta2, asst2)
+
+		lt := LoadBranchLogs(dir, "wmao/w0")
+		if lt == nil {
+			t.Fatal("expected non-nil LoadedTask")
+		}
+		if lt.Prompt != "new current prompt" {
+			t.Errorf("Prompt = %q, want %q (got stale prompt from earlier session)", lt.Prompt, "new current prompt")
+		}
+	})
 	t.Run("NonexistentDir", func(t *testing.T) {
 		if lt := LoadBranchLogs("/nonexistent/path", "wmao/w0"); lt != nil {
 			t.Error("expected nil for nonexistent dir")
