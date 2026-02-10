@@ -1,6 +1,7 @@
 // TaskView renders the real-time agent output stream for a single task.
-import { createSignal, For, Show, onCleanup, createEffect, Switch, Match } from "solid-js";
+import { createSignal, createMemo, For, Show, onCleanup, createEffect, Switch, Match } from "solid-js";
 import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask, reconnectTask as apiReconnectTask, takeoverTask as apiTakeoverTask } from "@sdk/api.gen";
+import { Marked } from "marked";
 import styles from "./TaskView.module.css";
 
 interface ContentBlock {
@@ -192,7 +193,7 @@ function MessageItem(props: { msg: AgentMessage }) {
       <Match when={props.msg.type === "assistant"}>
         <div class={styles.assistantMsg}>
           <For each={props.msg.message?.content?.filter((b) => b.type === "text") ?? []}>
-            {(block) => <div class={styles.textBlock}>{block.text}</div>}
+            {(block) => <Markdown text={block.text ?? ""} />}
           </For>
         </div>
       </Match>
@@ -295,6 +296,16 @@ function ToolMessageGroup(props: { toolBlocks: ContentBlock[] }) {
       </Show>
     </Show>
   );
+}
+
+const marked = new Marked({
+  breaks: true,
+  gfm: true,
+});
+
+function Markdown(props: { text: string }) {
+  const html = createMemo(() => marked.parse(props.text) as string);
+  return <div class={styles.markdown} innerHTML={html()} />;
 }
 
 function ToolUseBlock(props: { name: string; input: unknown }) {
