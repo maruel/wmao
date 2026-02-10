@@ -73,9 +73,9 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		if err != nil {
 			rel = filepath.Base(abs)
 		}
-		branch, err := gitutil.CurrentBranch(ctx, abs)
+		branch, err := gitutil.DefaultBranch(ctx, abs)
 		if err != nil {
-			slog.Warn("skipping repo, cannot determine branch", "path", abs, "err", err)
+			slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
 			continue
 		}
 		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch}

@@ -23,6 +23,39 @@ func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// DefaultBranch returns the default branch of the origin remote (e.g. "main"
+// or "master"). It reads refs/remotes/origin/HEAD which is set by the initial
+// clone. If the symbolic ref is missing, it falls back to querying the remote
+// directly via "git remote show origin".
+func DefaultBranch(ctx context.Context, dir string) (string, error) {
+	// Fast path: read the symbolic ref set by clone.
+	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = dir
+	if out, err := cmd.Output(); err == nil {
+		// Output is e.g. "refs/remotes/origin/main\n".
+		ref := strings.TrimSpace(string(out))
+		const prefix = "refs/remotes/origin/"
+		if after, ok := strings.CutPrefix(ref, prefix); ok {
+			return after, nil
+		}
+	}
+
+	// Slow fallback: query the remote.
+	cmd = exec.CommandContext(ctx, "git", "remote", "show", "origin")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git remote show origin: %w", err)
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "HEAD branch: "); ok {
+			return after, nil
+		}
+	}
+	return "", fmt.Errorf("could not determine default branch for origin in %s", dir)
+}
+
 // Fetch fetches the latest refs from origin.
 func Fetch(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "fetch", "origin")

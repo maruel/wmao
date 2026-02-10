@@ -111,6 +111,56 @@ func TestMaxBranchSeqNum(t *testing.T) {
 	}
 }
 
+func TestDefaultBranch(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	bare := filepath.Join(dir, "remote.git")
+	clone := filepath.Join(dir, "clone")
+
+	// Create a bare repo with "main" as the default branch, then clone it.
+	type gitCmd struct {
+		dir  string
+		args []string
+	}
+	for _, c := range []gitCmd{
+		{"", []string{"init", "--bare", "--initial-branch=main", bare}},
+		{"", []string{"clone", bare, clone}},
+		{clone, []string{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"}},
+		{clone, []string{"push", "origin", "main"}},
+	} {
+		cmd := exec.CommandContext(ctx, "git", c.args...) //nolint:gosec // test helper, args are constant.
+		if c.dir != "" {
+			cmd.Dir = c.dir
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", c.args, err, out)
+		}
+	}
+
+	// DefaultBranch should return "main" via the symbolic ref.
+	got, err := DefaultBranch(ctx, clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "main" {
+		t.Fatalf("got %q, want %q", got, "main")
+	}
+
+	// Switch to a different branch and verify DefaultBranch still returns "main".
+	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", "feature")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout -b feature: %v\n%s", err, out)
+	}
+	got, err = DefaultBranch(ctx, clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "main" {
+		t.Fatalf("got %q after checkout, want %q", got, "main")
+	}
+}
+
 func TestDiscoverReposEmpty(t *testing.T) {
 	root := t.TempDir()
 	repos, err := DiscoverRepos(root, 3)

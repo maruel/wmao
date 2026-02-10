@@ -97,9 +97,9 @@ func runCLI(ctx context.Context, args []string, rootDir string, maxTurns int, lo
 		}
 	}
 
-	baseBranch, err := gitutil.CurrentBranch(ctx, dir)
+	baseBranch, err := gitutil.DefaultBranch(ctx, dir)
 	if err != nil {
-		return fmt.Errorf("determining current branch: %w", err)
+		return fmt.Errorf("determining default branch: %w", err)
 	}
 
 	tasks := make([]*task.Task, len(args))
