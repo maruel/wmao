@@ -78,14 +78,15 @@ type Result struct {
 
 // Task represents a single unit of work.
 type Task struct {
-	Prompt    string
-	Repo      string // Relative repo path (for display/API).
-	MaxTurns  int
-	Branch    string
-	Container string
-	State     State
-	SessionID string // Claude Code session ID, captured from SystemInitMessage.
-	StartedAt time.Time
+	Prompt      string
+	Repo        string // Relative repo path (for display/API).
+	MaxTurns    int
+	Branch      string
+	Container   string
+	State       State
+	SessionID   string // Claude Code session ID, captured from SystemInitMessage.
+	StartedAt   time.Time
+	RelayOffset int64 // Bytes received from relay output.jsonl, for reconnect.
 
 	mu       sync.Mutex
 	msgs     []agent.Message
@@ -256,7 +257,7 @@ func (r *Runner) initDefaults() {
 			r.Container = container.MD{}
 		}
 		if r.AgentStartFn == nil {
-			r.AgentStartFn = agent.Start
+			r.AgentStartFn = agent.StartWithRelay
 		}
 	})
 }
@@ -277,6 +278,71 @@ func (r *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
+// Reconnect reattaches to a running relay, or starts a new Claude session
+// resuming the previous conversation if no relay is available. The caller must
+// use SendInput to provide the next prompt after reconnecting.
+func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
+	r.initDefaults()
+	t.mu.Lock()
+	if t.session != nil {
+		t.mu.Unlock()
+		return errors.New("session already active")
+	}
+	if t.Container == "" {
+		t.mu.Unlock()
+		return errors.New("no container to reconnect to")
+	}
+	t.State = StateRunning
+	t.mu.Unlock()
+
+	msgCh := make(chan agent.Message, 256)
+	go func() {
+		for m := range msgCh {
+			t.addMessage(m)
+		}
+	}()
+
+	logW, closeLog := r.openLog(t)
+
+	// Prefer attaching to a live relay (claude process still running).
+	relayAlive, err := agent.IsRelayRunning(ctx, t.Container)
+	if err != nil {
+		slog.Warn("relay check failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+	}
+
+	var session *agent.Session
+	if relayAlive {
+		session, err = agent.AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
+		if err != nil {
+			slog.Warn("attach relay failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+			relayAlive = false
+		}
+	}
+	if !relayAlive {
+		maxTurns := t.MaxTurns
+		if maxTurns == 0 {
+			maxTurns = r.MaxTurns
+		}
+		session, err = r.AgentStartFn(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
+	}
+	if err != nil {
+		closeLog()
+		close(msgCh)
+		t.mu.Lock()
+		t.State = StateWaiting
+		t.mu.Unlock()
+		return fmt.Errorf("reconnect: %w", err)
+	}
+
+	t.mu.Lock()
+	t.session = session
+	t.msgCh = msgCh
+	t.logW = logW
+	t.closeLog = closeLog
+	t.mu.Unlock()
+	return nil
+}
+
 // Start performs branch/container setup, starts the agent session, and sends
 // the initial prompt. The session is left open for follow-up messages via
 // SendInput. Call Finish (or t.Finish + r.Finish) to close the session and
@@ -288,6 +354,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	t.InitDoneCh()
 
 	// 1. Create branch + start container (serialized).
+	slog.Info("setting up task", "repo", t.Repo)
 	r.branchMu.Lock()
 	name, err := r.setup(ctx, t)
 	r.branchMu.Unlock()
@@ -296,10 +363,10 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 		return err
 	}
 	t.Container = name
+	slog.Info("container ready", "repo", t.Repo, "branch", t.Branch, "container", name)
 
 	// 2. Start the agent session.
 	t.State = StateRunning
-	slog.Info("running agent", "container", name, "task", t.Prompt)
 	msgCh := make(chan agent.Message, 256)
 	go func() {
 		for m := range msgCh {
@@ -312,11 +379,13 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	}
 	logW, closeLog := r.openLog(t)
 
+	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "maxTurns", maxTurns)
 	session, err := r.AgentStartFn(ctx, name, maxTurns, msgCh, logW, "")
 	if err != nil {
 		closeLog()
 		close(msgCh)
 		t.State = StateFailed
+		slog.Warn("agent session failed to start", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
 		return err
 	}
 
@@ -334,6 +403,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 		t.State = StateFailed
 		return fmt.Errorf("write prompt: %w", err)
 	}
+	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return nil
 }
 
@@ -382,9 +452,9 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	// If ended, skip pull/push — just kill the container.
 	if t.IsEnded() {
 		t.State = StateEnded
-		slog.Info("task ended, killing container", "container", name)
+		slog.Info("task ended, killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
 		if err := r.KillContainer(ctx, t.Branch); err != nil {
-			slog.Warn("failed to kill container", "container", name, "err", err)
+			slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
 		}
 		res := Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateEnded}
 		finishLog(&res)
@@ -421,7 +491,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 
 	// 4. Push to origin (serialized; does not need checkout).
 	t.State = StatePushing
-	slog.Info("pushing to origin", "branch", t.Branch)
+	slog.Info("pushing to origin", "repo", t.Repo, "branch", t.Branch)
 	r.pushMu.Lock()
 	pushErr := gitutil.Push(ctx, r.Dir, t.Branch)
 	r.pushMu.Unlock()
@@ -437,9 +507,9 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 
 	// 5. Kill container (requires task branch checked out).
 	t.State = StateDone
-	slog.Info("task done, killing container", "container", name)
+	slog.Info("task done, killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
 	if err := r.KillContainer(ctx, t.Branch); err != nil {
-		slog.Warn("failed to kill container", "container", name, "err", err)
+		slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
 	}
 
 	res := Result{
@@ -475,7 +545,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 		}
 		t.Branch = fmt.Sprintf("wmao/w%d", r.nextID)
 		r.nextID++
-		slog.Info("creating branch", "branch", t.Branch)
+		slog.Info("creating branch", "repo", t.Repo, "branch", t.Branch)
 		err = gitutil.CreateBranch(ctx, r.Dir, t.Branch, "origin/"+r.BaseBranch)
 		if err == nil {
 			break
@@ -485,11 +555,12 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 		return "", fmt.Errorf("create branch: %w", err)
 	}
 
-	slog.Info("starting container", "branch", t.Branch)
+	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
 	name, err := r.Container.Start(ctx, r.Dir)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
+	slog.Info("container started", "repo", t.Repo, "branch", t.Branch)
 
 	// Switch back to the base branch so the next task can create its branch.
 	if err := gitutil.CheckoutBranch(ctx, r.Dir, r.BaseBranch); err != nil {
@@ -516,7 +587,7 @@ func (r *Runner) PullChanges(ctx context.Context, branch string) (diffStat strin
 
 	diffStat, _ = r.Container.Diff(ctx, r.Dir, "--stat")
 
-	slog.Info("pulling changes", "branch", branch)
+	slog.Info("pulling changes", "repo", filepath.Base(r.Dir), "branch", branch)
 	if err := r.Container.Pull(ctx, r.Dir); err != nil {
 		return diffStat, err
 	}
@@ -538,7 +609,7 @@ func (r *Runner) PushChanges(ctx context.Context, branch string) (err error) {
 		}
 	}()
 
-	slog.Info("pushing changes to container", "branch", branch)
+	slog.Info("pushing changes to container", "repo", filepath.Base(r.Dir), "branch", branch)
 	return r.Container.Push(ctx, r.Dir)
 }
 

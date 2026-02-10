@@ -1,4 +1,4 @@
-.PHONY: help build dev test coverage lint lint-go lint-frontend lint-fix docs types git-hooks frontend-dev upgrade e2e
+.PHONY: help build dev test coverage lint lint-go lint-frontend lint-python lint-fix docs types git-hooks frontend-dev upgrade e2e
 
 FRONTEND_STAMP=node_modules/.stamp
 HTTP?=:8080

@@ -410,7 +410,24 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			prompt := "(adopted) " + branch
 			var startedAt time.Time
 
-			// Restore conversation history from JSONL logs when available.
+			// Check whether the relay daemon is alive in this container.
+			relayAlive, relayErr := agent.IsRelayRunning(ctx, e.Name)
+			if relayErr != nil {
+				slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+			}
+
+			var relayMsgs []agent.Message
+			var relaySize int64
+			if relayAlive {
+				// Relay is alive — read authoritative output from container.
+				relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, e.Name)
+				if relayErr != nil {
+					slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+					relayAlive = false
+				}
+			}
+
+			// Fall back to host JSONL logs for metadata (prompt, startedAt).
 			lt := task.LoadBranchLogs(s.logDir, branch)
 			if lt != nil && lt.Prompt != "" {
 				prompt = "(adopted) " + lt.Prompt
@@ -425,9 +442,15 @@ func (s *Server) adoptContainers(ctx context.Context) {
 				State:     task.StateWaiting,
 				StartedAt: startedAt,
 			}
-			if lt != nil && len(lt.Msgs) > 0 {
+
+			if relayAlive && len(relayMsgs) > 0 {
+				// Relay output is authoritative — zero loss.
+				t.RestoreMessages(relayMsgs)
+				t.RelayOffset = relaySize
+				slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(relayMsgs))
+			} else if lt != nil && len(lt.Msgs) > 0 {
 				t.RestoreMessages(lt.Msgs)
-				slog.Info("restored conversation from logs", "branch", branch, "messages", len(lt.Msgs))
+				slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(lt.Msgs))
 			}
 			t.InitDoneCh()
 			entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -437,7 +460,17 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			s.taskChanged()
 			s.mu.Unlock()
 
-			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
+			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch, "relay", relayAlive)
+
+			// If relay is alive, auto-attach in background so messages
+			// resume streaming immediately.
+			if relayAlive {
+				go func() {
+					if err := runner.Reconnect(ctx, t); err != nil {
+						slog.Warn("auto-attach to relay failed", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+					}
+				}()
+			}
 
 			// Reuse the standard Finish path: waits for Finish/End, then
 			// does pull→push→kill (or just kill if End).

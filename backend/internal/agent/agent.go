@@ -3,6 +3,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/maruel/wmao/backend/internal/agent/relay"
 )
 
 // Session manages a running Claude Code process. Use Start to create one.
@@ -255,4 +258,157 @@ func TextFromAssistant(m *AssistantMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// Relay paths inside the container.
+const (
+	relayDir        = "/tmp/wmao-relay"
+	relayScriptPath = relayDir + "/relay.py"
+	relaySockPath   = relayDir + "/relay.sock"
+	relayOutputPath = relayDir + "/output.jsonl"
+)
+
+// DeployRelay uploads the relay script into the container. Idempotent.
+func DeployRelay(ctx context.Context, container string) error {
+	// SSH concatenates remote args with spaces and passes them to the login
+	// shell, so a single string works correctly as a shell command.
+	cmd := exec.CommandContext(ctx, "ssh", container,
+		"mkdir -p "+relayDir+" && cat > "+relayScriptPath)
+	cmd.Stdin = bytes.NewReader(relay.Script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("deploy relay: %w: %s", err, out)
+	}
+	return nil
+}
+
+// StartWithRelay deploys the relay script and starts claude via serve-attach.
+// The relay daemon survives SSH disconnects; the returned Session talks to the
+// attach half (bridging the socket to stdio over SSH).
+func StartWithRelay(ctx context.Context, container string, maxTurns int, msgCh chan<- Message, logW io.Writer, resumeSessionID string) (*Session, error) {
+	if err := DeployRelay(ctx, container); err != nil {
+		return nil, err
+	}
+
+	claudeArgs := []string{
+		"claude", "-p",
+		"--input-format", "stream-json",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--dangerously-skip-permissions",
+	}
+	if maxTurns > 0 {
+		claudeArgs = append(claudeArgs, "--max-turns", strconv.Itoa(maxTurns))
+	}
+	if resumeSessionID != "" {
+		claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
+	}
+
+	// Build the ssh command: ssh <container> python3 relay.py serve-attach -- claude ...
+	sshArgs := make([]string, 0, 5+len(claudeArgs))
+	sshArgs = append(sshArgs, container, "python3", relayScriptPath, "serve-attach", "--")
+	sshArgs = append(sshArgs, claudeArgs...)
+
+	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = &slogWriter{prefix: "relay serve-attach", container: container}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start relay: %w", err)
+	}
+
+	return NewSession(cmd, stdin, stdout, msgCh, logW), nil
+}
+
+// AttachRelay connects to an already-running relay in the container. The
+// offset parameter specifies the byte offset into output.jsonl to replay from
+// (use 0 for full replay).
+func AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer) (*Session, error) {
+	sshArgs := []string{
+		container, "python3", relayScriptPath, "attach",
+		"--offset", strconv.FormatInt(offset, 10),
+	}
+	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = &slogWriter{prefix: "relay attach", container: container}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("attach relay: %w", err)
+	}
+
+	return NewSession(cmd, stdin, stdout, msgCh, logW), nil
+}
+
+// slogWriter is an io.Writer that logs each line via slog.Warn.
+type slogWriter struct {
+	prefix    string
+	container string
+	buf       []byte
+}
+
+func (w *slogWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:i]))
+		w.buf = w.buf[i+1:]
+		if line != "" {
+			slog.Warn("stderr", "source", w.prefix, "container", w.container, "line", line)
+		}
+	}
+	return len(p), nil
+}
+
+// IsRelayRunning checks whether the relay socket exists in the container.
+func IsRelayRunning(ctx context.Context, container string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "ssh", container, "test", "-S", relaySockPath)
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("test relay socket: %w", err)
+	}
+	return true, nil
+}
+
+// ReadRelayOutput reads the complete output.jsonl from the container's relay
+// and parses it into Messages. Also returns the byte count for use as an
+// offset in AttachRelay.
+func ReadRelayOutput(ctx context.Context, container string) (msgs []Message, size int64, err error) {
+	cmd := exec.CommandContext(ctx, "ssh", container, "cat", relayOutputPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, 0, fmt.Errorf("read relay output: %w", err)
+	}
+	size = int64(len(out))
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		msg, parseErr := ParseMessage(line)
+		if parseErr != nil {
+			slog.Warn("skipping unparseable relay output line", "container", container, "err", parseErr)
+			continue
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs, size, scanner.Err()
 }
