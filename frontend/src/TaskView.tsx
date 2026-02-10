@@ -1,6 +1,6 @@
 // TaskView renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
-import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask, reconnectTask as apiReconnectTask, takeoverTask as apiTakeoverTask } from "@sdk/api.gen";
+import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
 import { Marked } from "marked";
 import styles from "./TaskView.module.css";
 
@@ -109,14 +109,6 @@ export default function TaskView(props: Props) {
     await apiEndTask(props.taskId);
   }
 
-  async function reconnectTask() {
-    await apiReconnectTask(props.taskId);
-  }
-
-  async function takeoverTask() {
-    await apiTakeoverTask(props.taskId);
-  }
-
   return (
     <div class={styles.container}>
       <div class={styles.header}>
@@ -194,12 +186,6 @@ export default function TaskView(props: Props) {
           <Show when={isWaiting()}>
             <button type="button" class={`${styles.btn} ${styles.btnGreen}`} onClick={() => finishTask()}>
               Finish
-            </button>
-            <button type="button" class={`${styles.btn} ${styles.btnGray}`} onClick={() => reconnectTask()}>
-              Reconnect
-            </button>
-            <button type="button" class={`${styles.btn} ${styles.btnGray}`} onClick={() => takeoverTask()}>
-              Takeover
             </button>
           </Show>
           <button type="button" class={`${styles.btn} ${styles.btnRed}`} onClick={() => endTask()}>

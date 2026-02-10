@@ -116,8 +116,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/end", handleWithTask(s, s.endTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/pull", handleWithTask(s, s.pullTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/reconnect", handleWithTask(s, s.reconnectTask))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/takeover", handleWithTask(s, s.takeoverTask))
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
 	// Serve embedded frontend with SPA fallback: serve the file if it exists,
@@ -362,30 +360,6 @@ func (s *Server) pullTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 		return nil, dto.InternalError(err.Error())
 	}
 	return &dto.PullResp{Status: "pulled", DiffStat: diffStat}, nil
-}
-
-func (s *Server) reconnectTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
-	t := entry.task
-	if t.State != task.StateWaiting {
-		return nil, dto.Conflict("task is not in waiting state")
-	}
-	runner := s.runners[t.Repo]
-	if err := runner.Reconnect(ctx, t); err != nil {
-		return nil, dto.InternalError(err.Error())
-	}
-	return &dto.StatusResp{Status: "reconnected"}, nil
-}
-
-func (s *Server) takeoverTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
-	t := entry.task
-	if t.State != task.StateWaiting {
-		return nil, dto.Conflict("task is not in waiting state")
-	}
-	runner := s.runners[t.Repo]
-	if err := runner.Takeover(ctx, t); err != nil {
-		return nil, dto.InternalError(err.Error())
-	}
-	return &dto.StatusResp{Status: "taken_over"}, nil
 }
 
 func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {

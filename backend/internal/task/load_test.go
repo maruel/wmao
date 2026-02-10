@@ -76,7 +76,7 @@ func TestLoadBranchLogs(t *testing.T) {
 		asst1 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
 		writeLogFile(t, dir, "20260101T000000-wmao-w0.jsonl", meta1, asst1)
 
-		// Second session (reconnect).
+		// Second session.
 		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "wmao_meta", Prompt: "fix bug", Repo: "test", Branch: "wmao/w0"})
 		init2 := mustJSON(t, agent.SystemInitMessage{MessageType: "system", Subtype: "init", SessionID: "sid-2"})
 		asst2 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
