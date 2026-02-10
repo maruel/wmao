@@ -436,6 +436,7 @@ func (s *Server) adoptContainers(ctx context.Context) {
 
 			prompt := branch
 			var startedAt time.Time
+			var stateUpdatedAt time.Time
 
 			// Check whether the relay daemon is alive in this container.
 			relayAlive, relayErr := agent.IsRelayRunning(ctx, e.Name)
@@ -457,15 +458,20 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			if lt != nil && lt.Prompt != "" {
 				prompt = lt.Prompt
 				startedAt = lt.StartedAt
+				stateUpdatedAt = lt.LastStateUpdateAt
 			}
 
+			if stateUpdatedAt.IsZero() {
+				stateUpdatedAt = time.Now().UTC()
+			}
 			t := &task.Task{
-				Prompt:    prompt,
-				Repo:      ri.RelPath,
-				Branch:    branch,
-				Container: e.Name,
-				State:     task.StateWaiting,
-				StartedAt: startedAt,
+				Prompt:         prompt,
+				Repo:           ri.RelPath,
+				Branch:         branch,
+				Container:      e.Name,
+				State:          task.StateWaiting,
+				StateUpdatedAt: stateUpdatedAt,
+				StartedAt:      startedAt,
 			}
 
 			if relayAlive && len(relayMsgs) > 0 {
@@ -543,12 +549,13 @@ func (s *Server) notifyTaskChange() {
 
 func toJSON(id int, e *taskEntry) dto.TaskJSON {
 	j := dto.TaskJSON{
-		ID:        id,
-		Task:      e.task.Prompt,
-		Repo:      e.task.Repo,
-		Branch:    e.task.Branch,
-		Container: e.task.Container,
-		State:     e.task.State.String(),
+		ID:               id,
+		Task:             e.task.Prompt,
+		Repo:             e.task.Repo,
+		Branch:           e.task.Branch,
+		Container:        e.task.Container,
+		State:            e.task.State.String(),
+		StateUpdatedAtMs: e.task.StateUpdatedAt.UnixMilli(),
 	}
 	if e.result != nil {
 		j.DiffStat = e.result.DiffStat

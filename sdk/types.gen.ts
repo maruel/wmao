@@ -76,6 +76,7 @@ export interface TaskJSON {
   branch: string;
   container: string;
   state: string;
+  stateUpdatedAtMs: number /* int64 */; // Unix millis UTC of last state change.
   diffStat: string;
   costUSD: number /* float64 */;
   durationMs: number /* int64 */;

@@ -87,15 +87,16 @@ type Result struct {
 
 // Task represents a single unit of work.
 type Task struct {
-	Prompt      string
-	Repo        string // Relative repo path (for display/API).
-	MaxTurns    int
-	Branch      string
-	Container   string
-	State       State
-	SessionID   string // Claude Code session ID, captured from SystemInitMessage.
-	StartedAt   time.Time
-	RelayOffset int64 // Bytes received from relay output.jsonl, for reconnect.
+	Prompt         string
+	Repo           string // Relative repo path (for display/API).
+	MaxTurns       int
+	Branch         string
+	Container      string
+	State          State
+	StateUpdatedAt time.Time // UTC timestamp of the last state transition.
+	SessionID      string    // Claude Code session ID, captured from SystemInitMessage.
+	StartedAt      time.Time
+	RelayOffset    int64 // Bytes received from relay output.jsonl, for reconnect.
 
 	mu       sync.Mutex
 	msgs     []agent.Message
@@ -107,6 +108,13 @@ type Task struct {
 	doneCh   chan struct{}      // closed when user calls Finish or End
 	doneOnce sync.Once
 	ended    bool // true when End() was called (skip pull/push)
+}
+
+// setState updates the state and records the transition time. The caller must
+// hold t.mu when called from a locked context, or ensure exclusive access.
+func (t *Task) setState(s State) {
+	t.State = s
+	t.StateUpdatedAt = time.Now().UTC()
 }
 
 // Messages returns a copy of all received agent messages.
@@ -141,9 +149,9 @@ func (t *Task) addMessage(m agent.Message) {
 	// Transition to waiting/asking when a result arrives while running.
 	if _, ok := m.(*agent.ResultMessage); ok && t.State == StateRunning {
 		if lastAssistantHasAsk(t.msgs) {
-			t.State = StateAsking
+			t.setState(StateAsking)
 		} else {
-			t.State = StateWaiting
+			t.setState(StateWaiting)
 		}
 	}
 	// Fan out to subscribers (non-blocking).
@@ -218,7 +226,7 @@ func (t *Task) SendInput(prompt string) error {
 	t.mu.Lock()
 	s := t.session
 	if s != nil {
-		t.State = StateRunning
+		t.setState(StateRunning)
 	}
 	t.mu.Unlock()
 	if s == nil {
@@ -323,7 +331,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		t.mu.Unlock()
 		return errors.New("no container to reconnect to")
 	}
-	t.State = StateRunning
+	t.setState(StateRunning)
 	t.mu.Unlock()
 
 	msgCh := make(chan agent.Message, 256)
@@ -360,7 +368,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		closeLog()
 		close(msgCh)
 		t.mu.Lock()
-		t.State = StateWaiting
+		t.setState(StateWaiting)
 		t.mu.Unlock()
 		return fmt.Errorf("reconnect: %w", err)
 	}
@@ -380,8 +388,8 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 // proceed to pull/push/kill.
 func (r *Runner) Start(ctx context.Context, t *Task) error {
 	r.initDefaults()
-	t.StartedAt = time.Now()
-	t.State = StateBranching
+	t.StartedAt = time.Now().UTC()
+	t.setState(StateBranching)
 	t.InitDoneCh()
 
 	// 1. Create branch + start container (serialized).
@@ -390,14 +398,14 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	name, err := r.setup(ctx, t)
 	r.branchMu.Unlock()
 	if err != nil {
-		t.State = StateFailed
+		t.setState(StateFailed)
 		return err
 	}
 	t.Container = name
 	slog.Info("container ready", "repo", t.Repo, "branch", t.Branch, "container", name)
 
 	// 2. Start the agent session.
-	t.State = StateStarting
+	t.setState(StateStarting)
 	msgCh := make(chan agent.Message, 256)
 	go func() {
 		for m := range msgCh {
@@ -415,7 +423,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	if err != nil {
 		closeLog()
 		close(msgCh)
-		t.State = StateFailed
+		t.setState(StateFailed)
 		slog.Warn("agent session failed to start", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
 		return err
 	}
@@ -431,10 +439,10 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	if err := session.Send(t.Prompt); err != nil {
 		closeLog()
 		close(msgCh)
-		t.State = StateFailed
+		t.setState(StateFailed)
 		return fmt.Errorf("write prompt: %w", err)
 	}
-	t.State = StateRunning
+	t.setState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return nil
 }
@@ -447,7 +455,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	select {
 	case <-t.Done():
 	case <-ctx.Done():
-		t.State = StateFailed
+		t.setState(StateFailed)
 		return Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: ctx.Err()}
 	}
 
@@ -483,7 +491,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 
 	// If ended, skip pull/push — just kill the container.
 	if t.IsEnded() {
-		t.State = StateEnded
+		t.setState(StateEnded)
 		slog.Info("task ended, killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
 		if err := r.KillContainer(ctx, t.Branch); err != nil {
 			slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
@@ -495,24 +503,24 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 
 	// No session and no container means nothing to do.
 	if session == nil && name == "" {
-		t.State = StateFailed
+		t.setState(StateFailed)
 		res := Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: errors.New("no active session")}
 		finishLog(&res)
 		return res
 	}
 	if session != nil && waitErr != nil {
-		t.State = StateFailed
+		t.setState(StateFailed)
 		res := Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name, State: StateFailed, Err: waitErr}
 		finishLog(&res)
 		return res
 	}
 
 	// 3. Diff + pull (requires task branch checked out).
-	t.State = StatePulling
+	t.setState(StatePulling)
 	diffStat, pullErr := r.PullChanges(ctx, t.Branch)
 
 	if pullErr != nil {
-		t.State = StateFailed
+		t.setState(StateFailed)
 		res := Result{
 			Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name,
 			State: StateFailed, DiffStat: diffStat, Err: pullErr,
@@ -522,13 +530,13 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	}
 
 	// 4. Push to origin (serialized; does not need checkout).
-	t.State = StatePushing
+	t.setState(StatePushing)
 	slog.Info("pushing to origin", "repo", t.Repo, "branch", t.Branch)
 	r.pushMu.Lock()
 	pushErr := gitutil.Push(ctx, r.Dir, t.Branch)
 	r.pushMu.Unlock()
 	if pushErr != nil {
-		t.State = StateFailed
+		t.setState(StateFailed)
 		res := Result{
 			Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: name,
 			State: StateFailed, DiffStat: diffStat, Err: pushErr,
@@ -538,7 +546,7 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 	}
 
 	// 5. Kill container (requires task branch checked out).
-	t.State = StateDone
+	t.setState(StateDone)
 	slog.Info("task done, killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
 	if err := r.KillContainer(ctx, t.Branch); err != nil {
 		slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
@@ -587,7 +595,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 		return "", fmt.Errorf("create branch: %w", err)
 	}
 
-	t.State = StateProvisioning
+	t.setState(StateProvisioning)
 	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
 	name, err := r.Container.Start(ctx, r.Dir)
 	if err != nil {

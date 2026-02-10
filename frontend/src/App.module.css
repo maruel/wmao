@@ -139,6 +139,13 @@
   font-size: 0.9rem;
 }
 
+.stateGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
 .stateBadge {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
@@ -147,6 +154,13 @@
   align-self: flex-start;
   flex-shrink: 0;
   line-height: 1.4;
+}
+
+.durationLabel {
+  font-size: 0.7rem;
+  color: #888;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .repoLabel {

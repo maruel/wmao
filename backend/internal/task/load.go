@@ -19,13 +19,14 @@ var errNotLogFile = errors.New("not a wmao log file")
 
 // LoadedTask holds the data reconstructed from a single JSONL log file.
 type LoadedTask struct {
-	Prompt    string
-	Repo      string
-	Branch    string
-	StartedAt time.Time
-	State     State
-	Msgs      []agent.Message
-	Result    *Result
+	Prompt            string
+	Repo              string
+	Branch            string
+	StartedAt         time.Time
+	LastStateUpdateAt time.Time // Derived from log file mtime; best-effort for adopt.
+	State             State
+	Msgs              []agent.Message
+	Result            *Result
 }
 
 // LoadLogs scans logDir for *.jsonl files and reconstructs completed tasks.
@@ -98,12 +99,20 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 		return nil, errNotLogFile
 	}
 
+	// Use the file modification time as a best-effort approximation of the
+	// last state change (the file is written to as messages arrive).
+	var mtime time.Time
+	if info, err := f.Stat(); err == nil {
+		mtime = info.ModTime().UTC()
+	}
+
 	lt := &LoadedTask{
-		Prompt:    meta.Prompt,
-		Repo:      meta.Repo,
-		Branch:    meta.Branch,
-		StartedAt: meta.StartedAt,
-		State:     StateFailed, // default if no trailer
+		Prompt:            meta.Prompt,
+		Repo:              meta.Repo,
+		Branch:            meta.Branch,
+		StartedAt:         meta.StartedAt,
+		LastStateUpdateAt: mtime,
+		State:             StateFailed, // default if no trailer
 	}
 
 	// Parse remaining lines as agent messages or the result trailer.
@@ -196,6 +205,9 @@ func LoadBranchLogs(logDir, branch string) *LoadedTask {
 			}
 			if !lt.StartedAt.IsZero() {
 				merged.StartedAt = lt.StartedAt
+			}
+			if !lt.LastStateUpdateAt.IsZero() {
+				merged.LastStateUpdateAt = lt.LastStateUpdateAt
 			}
 			if lt.Result != nil {
 				merged.Result = lt.Result

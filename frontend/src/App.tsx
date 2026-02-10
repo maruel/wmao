@@ -1,5 +1,6 @@
 // Main application component for wmao web UI.
 import { createSignal, createEffect, For, Index, Show, Switch, Match, onMount, onCleanup } from "solid-js";
+import type { Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
@@ -37,6 +38,13 @@ export default function App() {
 
   // Track previous task states to detect transitions to "waiting".
   let prevStates = new Map<number, string>();
+
+  // Tick every second for live elapsed-time display.
+  const [now, setNow] = createSignal(Date.now());
+  {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(timer));
+  }
 
   const selectedTask = (): TaskJSON | null => findTaskByPath(tasks(), location.pathname);
   const selectedId = (): number | null => selectedTask()?.id ?? null;
@@ -191,8 +199,13 @@ export default function App() {
                 class={`${styles.taskCard} ${selectedId() === t().id ? styles.taskCardSelected : ""}`}>
                 <div class={styles.taskHeader}>
                   <strong class={styles.taskTitle}>{t().task}</strong>
-                  <span class={styles.stateBadge} style={{ background: stateColor(t().state) }}>
-                    {t().state}
+                  <span class={styles.stateGroup}>
+                    <span class={styles.stateBadge} style={{ background: stateColor(t().state) }}>
+                      {t().state}
+                    </span>
+                    <Show when={t().stateUpdatedAtMs > 0}>
+                      <StateDuration stateUpdatedAtMs={t().stateUpdatedAtMs} now={now} />
+                    </Show>
                   </span>
                 </div>
                 <Show when={t().repo}>
@@ -239,6 +252,20 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function StateDuration(props: { stateUpdatedAtMs: number; now: Accessor<number> }) {
+  const elapsed = () => Math.max(0, props.now() - props.stateUpdatedAtMs);
+  return <span class={styles.durationLabel}>{formatElapsed(elapsed())}</span>;
 }
 
 function stateColor(state: string): string {

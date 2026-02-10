@@ -12,18 +12,19 @@ type RepoJSON struct {
 
 // TaskJSON is the JSON representation sent to the frontend.
 type TaskJSON struct {
-	ID         int     `json:"id"`
-	Task       string  `json:"task"`
-	Repo       string  `json:"repo"`
-	Branch     string  `json:"branch"`
-	Container  string  `json:"container"`
-	State      string  `json:"state"`
-	DiffStat   string  `json:"diffStat"`
-	CostUSD    float64 `json:"costUSD"`
-	DurationMs int64   `json:"durationMs"`
-	NumTurns   int     `json:"numTurns"`
-	Error      string  `json:"error,omitempty"`
-	Result     string  `json:"result,omitempty"`
+	ID               int     `json:"id"`
+	Task             string  `json:"task"`
+	Repo             string  `json:"repo"`
+	Branch           string  `json:"branch"`
+	Container        string  `json:"container"`
+	State            string  `json:"state"`
+	StateUpdatedAtMs int64   `json:"stateUpdatedAtMs"` // Unix millis UTC of last state change.
+	DiffStat         string  `json:"diffStat"`
+	CostUSD          float64 `json:"costUSD"`
+	DurationMs       int64   `json:"durationMs"`
+	NumTurns         int     `json:"numTurns"`
+	Error            string  `json:"error,omitempty"`
+	Result           string  `json:"result,omitempty"`
 }
 
 // StatusResp is a common response for mutation endpoints.
