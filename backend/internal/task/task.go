@@ -225,14 +225,32 @@ type Runner struct {
 	MaxTurns   int
 	LogDir     string // If set, raw JSONL session logs are written here.
 
+	// Container provides md container lifecycle operations. Defaults to container.MD{}.
+	Container container.Ops
+	// AgentStartFn launches an agent session. Defaults to agent.Start.
+	AgentStartFn func(ctx context.Context, container string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)
+
+	initOnce sync.Once
 	branchMu sync.Mutex // Serializes operations that need a specific branch checked out (md commands).
 	nextID   int        // Next branch sequence number (protected by branchMu).
 	pushMu   sync.Mutex // Serializes git push to origin.
 }
 
+func (r *Runner) initDefaults() {
+	r.initOnce.Do(func() {
+		if r.Container == nil {
+			r.Container = container.MD{}
+		}
+		if r.AgentStartFn == nil {
+			r.AgentStartFn = agent.Start
+		}
+	})
+}
+
 // Init sets nextID past any existing wmao/w* branches so that restarts don't
 // waste attempts on branches that already exist.
 func (r *Runner) Init(ctx context.Context) error {
+	r.initDefaults()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 	highest, err := gitutil.MaxBranchSeqNum(ctx, r.Dir)
@@ -249,6 +267,7 @@ func (r *Runner) Init(ctx context.Context) error {
 // the previous conversation if a SessionID was captured. The caller must use
 // SendInput to provide the next prompt after reconnecting.
 func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
+	r.initDefaults()
 	t.mu.Lock()
 	if t.session != nil {
 		t.mu.Unlock()
@@ -274,7 +293,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	}
 	logW, closeLog := r.openLog(t)
 
-	session, err := agent.Start(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
+	session, err := r.AgentStartFn(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
 	if err != nil {
 		closeLog()
 		close(msgCh)
@@ -297,6 +316,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 // fresh session, optionally resuming the previous conversation. Use this when
 // a container may still have a stale claude process (e.g. after wmao restart).
 func (r *Runner) Takeover(ctx context.Context, t *Task) error {
+	r.initDefaults()
 	t.mu.Lock()
 	if t.session != nil {
 		t.mu.Unlock()
@@ -341,7 +361,7 @@ func (r *Runner) Takeover(ctx context.Context, t *Task) error {
 	}
 	logW, closeLog := r.openLog(t)
 
-	session, err := agent.Start(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
+	session, err := r.AgentStartFn(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
 	if err != nil {
 		closeLog()
 		close(msgCh)
@@ -376,6 +396,7 @@ func (r *Runner) Run(ctx context.Context, t *Task) Result {
 // SendInput. Call Finish (or t.Finish + r.Finish) to close the session and
 // proceed to pull/push/kill.
 func (r *Runner) Start(ctx context.Context, t *Task) error {
+	r.initDefaults()
 	t.StartedAt = time.Now()
 	t.State = StateStarting
 	t.InitDoneCh()
@@ -405,7 +426,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	}
 	logW, closeLog := r.openLog(t)
 
-	session, err := agent.Start(ctx, name, maxTurns, msgCh, logW, "")
+	session, err := r.AgentStartFn(ctx, name, maxTurns, msgCh, logW, "")
 	if err != nil {
 		closeLog()
 		close(msgCh)
@@ -579,7 +600,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 	}
 
 	slog.Info("starting container", "branch", t.Branch)
-	name, err := container.Start(ctx, r.Dir)
+	name, err := r.Container.Start(ctx, r.Dir)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
@@ -594,6 +615,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 // PullChanges checks out the branch, runs md diff + md pull, then switches
 // back. Returns the diff stat and the first error encountered.
 func (r *Runner) PullChanges(ctx context.Context, branch string) (diffStat string, err error) {
+	r.initDefaults()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 
@@ -606,10 +628,10 @@ func (r *Runner) PullChanges(ctx context.Context, branch string) (diffStat strin
 		}
 	}()
 
-	diffStat, _ = container.Diff(ctx, r.Dir, "--stat")
+	diffStat, _ = r.Container.Diff(ctx, r.Dir, "--stat")
 
 	slog.Info("pulling changes", "branch", branch)
-	if err := container.Pull(ctx, r.Dir); err != nil {
+	if err := r.Container.Pull(ctx, r.Dir); err != nil {
 		return diffStat, err
 	}
 	return diffStat, nil
@@ -617,6 +639,7 @@ func (r *Runner) PullChanges(ctx context.Context, branch string) (diffStat strin
 
 // PushChanges checks out the branch, runs md push, then switches back.
 func (r *Runner) PushChanges(ctx context.Context, branch string) (err error) {
+	r.initDefaults()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 
@@ -630,12 +653,13 @@ func (r *Runner) PushChanges(ctx context.Context, branch string) (err error) {
 	}()
 
 	slog.Info("pushing changes to container", "branch", branch)
-	return container.Push(ctx, r.Dir)
+	return r.Container.Push(ctx, r.Dir)
 }
 
 // KillContainer checks out the branch, kills the md container, then switches
 // back.
 func (r *Runner) KillContainer(ctx context.Context, branch string) (err error) {
+	r.initDefaults()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 
@@ -648,7 +672,7 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) (err error) {
 		}
 	}()
 
-	return container.Kill(ctx, r.Dir)
+	return r.Container.Kill(ctx, r.Dir)
 }
 
 // openLog creates a JSONL log file in LogDir and writes a metadata header as

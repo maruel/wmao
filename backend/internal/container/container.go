@@ -11,6 +11,83 @@ import (
 	"strings"
 )
 
+// Ops abstracts md container lifecycle operations.
+type Ops interface {
+	Start(ctx context.Context, dir string) (name string, err error)
+	Diff(ctx context.Context, dir string, args ...string) (string, error)
+	Pull(ctx context.Context, dir string) error
+	Push(ctx context.Context, dir string) error
+	Kill(ctx context.Context, dir string) error
+}
+
+// MD implements Ops using the real md CLI.
+type MD struct{}
+
+// Start creates and starts an md container for the current branch.
+// It does not SSH into it (--no-ssh).
+func (MD) Start(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "md", "start", "--no-ssh")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("md start: %w: %s", err, stderr.String())
+	}
+	name, err := containerName(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// Diff runs `md diff` and returns the diff output.
+func (MD) Diff(ctx context.Context, dir string, args ...string) (string, error) {
+	cmdArgs := append([]string{"diff"}, args...)
+	cmd := exec.CommandContext(ctx, "md", cmdArgs...) //nolint:gosec // args are not user-controlled.
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("md diff: %w", err)
+	}
+	return string(out), nil
+}
+
+// Pull pulls changes from the container to the local branch.
+func (MD) Pull(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "md", "pull")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("md pull: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+// Push pushes local changes into the container.
+func (MD) Push(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "md", "push")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("md push: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+// Kill stops and removes the container.
+func (MD) Kill(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "md", "kill")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("md kill: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
 // Entry represents a container returned by md list.
 type Entry struct {
 	Name   string
@@ -53,71 +130,6 @@ func BranchFromContainer(containerName, repoName string) (string, bool) {
 		return "wmao/" + slug[len("wmao-"):], true
 	}
 	return slug, true
-}
-
-// Start creates and starts an md container for the current branch.
-// It does not SSH into it (--no-ssh).
-func Start(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "md", "start", "--no-ssh")
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("md start: %w: %s", err, stderr.String())
-	}
-	name, err := containerName(ctx, dir)
-	if err != nil {
-		return "", err
-	}
-	return name, nil
-}
-
-// Diff runs `md diff` and returns the diff output.
-func Diff(ctx context.Context, dir string, args ...string) (string, error) {
-	cmdArgs := append([]string{"diff"}, args...)
-	cmd := exec.CommandContext(ctx, "md", cmdArgs...) //nolint:gosec // args are not user-controlled.
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("md diff: %w", err)
-	}
-	return string(out), nil
-}
-
-// Pull pulls changes from the container to the local branch.
-func Pull(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "md", "pull")
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("md pull: %w: %s", err, stderr.String())
-	}
-	return nil
-}
-
-// Push pushes local changes into the container.
-func Push(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "md", "push")
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("md push: %w: %s", err, stderr.String())
-	}
-	return nil
-}
-
-// Kill stops and removes the container.
-func Kill(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "md", "kill")
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("md kill: %w: %s", err, stderr.String())
-	}
-	return nil
 }
 
 // containerName returns the md container name for the current repo+branch by

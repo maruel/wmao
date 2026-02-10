@@ -61,6 +61,12 @@ func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Mes
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
 
+	return NewSession(cmd, stdin, stdout, msgCh, logW), nil
+}
+
+// NewSession creates a Session from an already-started command. Messages read
+// from stdout are sent to msgCh. logW receives raw NDJSON lines (may be nil).
+func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer) *Session {
 	s := &Session{
 		cmd:   cmd,
 		stdin: stdin,
@@ -86,7 +92,7 @@ func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Mes
 		}
 	}()
 
-	return s, nil
+	return s
 }
 
 // Send writes a user message to the agent's stdin. It is safe for concurrent

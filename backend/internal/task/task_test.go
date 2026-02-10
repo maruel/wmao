@@ -1,12 +1,19 @@
 package task
 
 import (
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/maruel/wmao/backend/internal/agent"
+	"github.com/maruel/wmao/backend/internal/container"
+	"github.com/maruel/wmao/backend/internal/gitutil"
 )
 
 func TestOpenLog(t *testing.T) {
@@ -216,5 +223,214 @@ func TestTaskEndIdempotent(t *testing.T) {
 	tk.End() // must not panic
 	if !tk.IsEnded() {
 		t.Fatal("IsEnded() false after double End()")
+	}
+}
+
+// --- Runner e2e test helpers ---
+
+// initTestRepo creates a bare "remote" and a local clone with one commit on
+// baseBranch. Returns the clone directory. origin points to the bare repo so
+// git fetch/push work locally.
+func initTestRepo(t *testing.T, baseBranch string) string { //nolint:unparam // test helper, flexibility is intentional
+	t.Helper()
+	dir := t.TempDir()
+	bare := filepath.Join(dir, "remote.git")
+	clone := filepath.Join(dir, "clone")
+
+	runGit(t, "", "init", "--bare", bare)
+	runGit(t, "", "init", clone)
+	runGit(t, clone, "config", "user.name", "Test")
+	runGit(t, clone, "config", "user.email", "test@test.com")
+	runGit(t, clone, "checkout", "-b", baseBranch)
+
+	if err := os.WriteFile(filepath.Join(clone, "README.md"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, clone, "add", ".")
+	runGit(t, clone, "commit", "-m", "init")
+	runGit(t, clone, "remote", "add", "origin", bare)
+	runGit(t, clone, "push", "-u", "origin", baseBranch)
+	return clone
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// fakeContainer implements container.Ops with no-op operations.
+type fakeContainer struct {
+	mu      sync.Mutex
+	started []string // container names returned by Start
+	killed  bool
+	pulled  bool
+}
+
+var _ container.Ops = (*fakeContainer)(nil)
+
+func (f *fakeContainer) Start(ctx context.Context, dir string) (string, error) {
+	branch, err := gitutil.CurrentBranch(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	name := "md-test-" + strings.ReplaceAll(branch, "/", "-")
+	f.mu.Lock()
+	f.started = append(f.started, name)
+	f.mu.Unlock()
+	return name, nil
+}
+
+func (f *fakeContainer) Diff(_ context.Context, _ string, _ ...string) (string, error) {
+	return "", nil
+}
+
+func (f *fakeContainer) Pull(_ context.Context, _ string) error {
+	f.mu.Lock()
+	f.pulled = true
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeContainer) Push(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeContainer) Kill(_ context.Context, _ string) error {
+	f.mu.Lock()
+	f.killed = true
+	f.mu.Unlock()
+	return nil
+}
+
+// fakeAgentStart creates a Session backed by a shell process that reads one
+// line from stdin then emits a result JSON line on stdout.
+func fakeAgentStart(_ context.Context, _ string, _ int, msgCh chan<- agent.Message, logW io.Writer, _ string) (*agent.Session, error) {
+	const resultJSON = `{"type":"result","subtype":"success","result":"done","num_turns":1,"total_cost_usd":0.01,"duration_ms":100}`
+	cmd := exec.Command("sh", "-c", `read line; echo '`+resultJSON+`'`)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW), nil
+}
+
+func TestRunnerInit(t *testing.T) {
+	clone := initTestRepo(t, "main")
+	r := &Runner{
+		BaseBranch: "main",
+		Dir:        clone,
+	}
+	if err := r.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if r.nextID != 0 {
+		t.Errorf("nextID = %d, want 0", r.nextID)
+	}
+}
+
+func TestRunnerInitSkipsExisting(t *testing.T) {
+	clone := initTestRepo(t, "main")
+	// Pre-create branches.
+	runGit(t, clone, "branch", "wmao/w0")
+	runGit(t, clone, "branch", "wmao/w3")
+
+	r := &Runner{
+		BaseBranch: "main",
+		Dir:        clone,
+	}
+	if err := r.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if r.nextID != 4 {
+		t.Errorf("nextID = %d, want 4", r.nextID)
+	}
+}
+
+func TestRunnerRun(t *testing.T) {
+	clone := initTestRepo(t, "main")
+	fc := &fakeContainer{}
+	r := &Runner{
+		BaseBranch:   "main",
+		Dir:          clone,
+		MaxTurns:     1,
+		Container:    fc,
+		AgentStartFn: fakeAgentStart,
+	}
+	if err := r.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	tk := &Task{Prompt: "test task", Repo: "test"}
+	result := r.Run(t.Context(), tk)
+
+	if result.State != StateDone {
+		t.Fatalf("state = %v, want %v; err=%v", result.State, StateDone, result.Err)
+	}
+	if result.Branch != "wmao/w0" {
+		t.Errorf("branch = %q, want %q", result.Branch, "wmao/w0")
+	}
+	if result.Container == "" {
+		t.Error("container not set in result")
+	}
+
+	// Verify container operations were invoked.
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if len(fc.started) == 0 {
+		t.Error("container Start was not called")
+	}
+	if !fc.killed {
+		t.Error("container Kill was not called")
+	}
+}
+
+func TestRunnerEnd(t *testing.T) {
+	clone := initTestRepo(t, "main")
+	fc := &fakeContainer{}
+	r := &Runner{
+		BaseBranch:   "main",
+		Dir:          clone,
+		MaxTurns:     1,
+		Container:    fc,
+		AgentStartFn: fakeAgentStart,
+	}
+	if err := r.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	tk := &Task{Prompt: "test task", Repo: "test"}
+	if err := r.Start(t.Context(), tk); err != nil {
+		t.Fatal(err)
+	}
+
+	tk.End()
+	result := r.Finish(t.Context(), tk)
+
+	if result.State != StateEnded {
+		t.Errorf("state = %v, want %v", result.State, StateEnded)
+	}
+
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if !fc.killed {
+		t.Error("container Kill was not called after End")
+	}
+	if fc.pulled {
+		t.Error("container Pull should not be called after End")
 	}
 }
