@@ -1,5 +1,6 @@
 // Auto-resizing textarea that starts as a single line and expands vertically.
 // Enter submits (via onSubmit), Shift+Enter inserts a newline.
+import { createEffect } from "solid-js";
 import type { JSX } from "solid-js";
 
 interface Props {
@@ -35,21 +36,18 @@ export default function AutoResizeTextarea(props: Props) {
 
   // Reset height when value is cleared externally (e.g. after submit).
   // Solid's value binding updates the DOM, but the inline height style persists.
-  const prevValue = { v: props.value };
-  // Use a getter to react to prop changes in the JSX below; also reset height.
-  const value = () => {
+  createEffect((prev: string) => {
     const v = props.value;
-    if (v === "" && prevValue.v !== "") {
+    if (v === "" && prev !== "") {
       if (ref) ref.style.height = "";
     }
-    prevValue.v = v;
     return v;
-  };
+  }, "");
 
   return (
     <textarea
       ref={ref}
-      value={value()}
+      value={props.value}
       onInput={handleInput}
       onKeyDown={handleKeyDown}
       placeholder={props.placeholder}
