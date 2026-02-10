@@ -56,7 +56,9 @@ lint-fix: $(FRONTEND_STAMP)
 git-hooks:
 	@mkdir -p .git/hooks
 	@cp ./scripts/pre-commit .git/hooks/pre-commit
-	@echo "Git hooks installed"
+	@cp ./scripts/pre-push .git/hooks/pre-push
+	@git config merge.ours.driver true
+	@echo "✓ Git hooks installed"
 
 frontend-dev: $(FRONTEND_STAMP)
 	@NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false pnpm dev
