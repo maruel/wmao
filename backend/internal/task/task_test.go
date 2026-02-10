@@ -188,9 +188,45 @@ func TestAddMessageTransitionsToWaiting(t *testing.T) {
 	}
 }
 
-func TestStateEndedString(t *testing.T) {
-	if got := StateEnded.String(); got != "ended" {
-		t.Errorf("StateEnded.String() = %q, want %q", got, "ended")
+func TestAddMessageTransitionsToAsking(t *testing.T) {
+	tk := &Task{Prompt: "test", State: StateRunning}
+	// Add an assistant message with an AskUserQuestion tool_use block.
+	tk.addMessage(&agent.AssistantMessage{
+		MessageType: "assistant",
+		Message: agent.APIMessage{
+			Content: []agent.ContentBlock{
+				{Type: "tool_use", Name: "AskUserQuestion"},
+			},
+		},
+	})
+	// Now add a result message — should transition to StateAsking.
+	tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+	if tk.State != StateAsking {
+		t.Errorf("state = %v, want %v", tk.State, StateAsking)
+	}
+}
+
+func TestStateStrings(t *testing.T) {
+	for _, tt := range []struct {
+		state State
+		want  string
+	}{
+		{StatePending, "pending"},
+		{StateBranching, "branching"},
+		{StateProvisioning, "provisioning"},
+		{StateStarting, "starting"},
+		{StateRunning, "running"},
+		{StateWaiting, "waiting"},
+		{StateAsking, "asking"},
+		{StatePulling, "pulling"},
+		{StatePushing, "pushing"},
+		{StateDone, "done"},
+		{StateFailed, "failed"},
+		{StateEnded, "ended"},
+	} {
+		if got := tt.state.String(); got != tt.want {
+			t.Errorf("State(%d).String() = %q, want %q", tt.state, got, tt.want)
+		}
 	}
 }
 

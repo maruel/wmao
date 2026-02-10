@@ -106,10 +106,10 @@ export default function TaskView(props: Props) {
 
   const isActive = () => {
     const s = props.taskState;
-    return s === "running" || s === "starting" || s === "waiting";
+    return s === "running" || s === "branching" || s === "provisioning" || s === "starting" || s === "waiting" || s === "asking";
   };
 
-  const isWaiting = () => props.taskState === "waiting";
+  const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
 
   async function finishTask() {
     await apiFinishTask(props.taskId);

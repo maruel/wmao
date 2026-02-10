@@ -339,7 +339,7 @@ func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputRe
 
 func (s *Server) finishTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
 	state := entry.task.State
-	if state != task.StateWaiting && state != task.StateRunning {
+	if state != task.StateWaiting && state != task.StateAsking && state != task.StateRunning {
 		return nil, dto.Conflict("task is not running or waiting")
 	}
 	entry.task.Finish()
@@ -350,7 +350,7 @@ func (s *Server) endTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (
 	switch entry.task.State {
 	case task.StateDone, task.StateFailed, task.StateEnded:
 		return nil, dto.Conflict("task is already in a terminal state")
-	case task.StatePending, task.StateStarting, task.StateRunning, task.StateWaiting, task.StatePulling, task.StatePushing:
+	case task.StatePending, task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
 	}
 	entry.task.End()
 	return &dto.StatusResp{Status: "ending"}, nil
@@ -363,7 +363,7 @@ func (s *Server) pullTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 		return nil, dto.Conflict("task has no container yet")
 	case task.StateDone, task.StateFailed, task.StateEnded:
 		return nil, dto.Conflict("task is in a terminal state")
-	case task.StateStarting, task.StateRunning, task.StateWaiting, task.StatePulling, task.StatePushing:
+	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
 	}
 	runner := s.runners[t.Repo]
 	diffStat, err := runner.PullChanges(ctx, t.Branch)
@@ -380,7 +380,7 @@ func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 		return nil, dto.Conflict("task has no container yet")
 	case task.StateDone, task.StateFailed, task.StateEnded:
 		return nil, dto.Conflict("task is in a terminal state")
-	case task.StateStarting, task.StateRunning, task.StateWaiting, task.StatePulling, task.StatePushing:
+	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
 	}
 	runner := s.runners[t.Repo]
 	if err := runner.PushChanges(ctx, t.Branch); err != nil {

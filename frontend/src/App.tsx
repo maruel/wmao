@@ -69,7 +69,9 @@ export default function App() {
         try {
           const updated = JSON.parse(e.data) as TaskJSON[];
           for (const t of updated) {
-            if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
+            const needsInput = t.state === "waiting" || t.state === "asking";
+            const prevNeedsInput = prevStates.get(t.id) === "waiting" || prevStates.get(t.id) === "asking";
+            if (needsInput && !prevNeedsInput) {
               notifyWaiting(t.id, t.task);
             }
           }
@@ -238,10 +240,16 @@ export default function App() {
 
 function stateColor(state: string): string {
   switch (state) {
-    case "running": return "#d4edda";
-    case "done": return "#d4edda";
-    case "failed": return "#f8d7da";
-    case "ended": return "#e2e3e5";
-    default: return "#fff3cd";
+    case "running":
+    case "done":
+      return "#d4edda";
+    case "asking":
+      return "#cce5ff";
+    case "failed":
+      return "#f8d7da";
+    case "ended":
+      return "#e2e3e5";
+    default:
+      return "#fff3cd";
   }
 }

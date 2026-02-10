@@ -25,27 +25,36 @@ type State int
 
 // Task lifecycle states.
 const (
-	StatePending  State = iota
-	StateStarting       // Creating branch + container.
-	StateRunning        // Agent is executing.
-	StateWaiting        // Agent completed a turn, awaiting user input or finish.
-	StatePulling        // Pulling changes from container.
-	StatePushing        // Pushing to origin.
-	StateDone           // Successfully completed.
-	StateFailed         // Failed at some stage.
-	StateEnded          // Force-killed, skipping pull/push.
+	StatePending      State = iota
+	StateBranching          // Creating git branch.
+	StateProvisioning       // Starting docker container.
+	StateStarting           // Launching agent session.
+	StateRunning            // Agent is executing.
+	StateWaiting            // Agent completed a turn, awaiting user input or finish.
+	StateAsking             // Agent asked a question (AskUserQuestion), needs answer.
+	StatePulling            // Pulling changes from container.
+	StatePushing            // Pushing to origin.
+	StateDone               // Successfully completed.
+	StateFailed             // Failed at some stage.
+	StateEnded              // Force-killed, skipping pull/push.
 )
 
 func (s State) String() string {
 	switch s {
 	case StatePending:
 		return "pending"
+	case StateBranching:
+		return "branching"
+	case StateProvisioning:
+		return "provisioning"
 	case StateStarting:
 		return "starting"
 	case StateRunning:
 		return "running"
 	case StateWaiting:
 		return "waiting"
+	case StateAsking:
+		return "asking"
 	case StatePulling:
 		return "pulling"
 	case StatePushing:
@@ -129,9 +138,13 @@ func (t *Task) addMessage(m agent.Message) {
 	if init, ok := m.(*agent.SystemInitMessage); ok && init.SessionID != "" {
 		t.SessionID = init.SessionID
 	}
-	// Transition to waiting when a result arrives while running.
+	// Transition to waiting/asking when a result arrives while running.
 	if _, ok := m.(*agent.ResultMessage); ok && t.State == StateRunning {
-		t.State = StateWaiting
+		if lastAssistantHasAsk(t.msgs) {
+			t.State = StateAsking
+		} else {
+			t.State = StateWaiting
+		}
 	}
 	// Fan out to subscribers (non-blocking).
 	for i := 0; i < len(t.subs); i++ {
@@ -144,6 +157,24 @@ func (t *Task) addMessage(m agent.Message) {
 			i--
 		}
 	}
+}
+
+// lastAssistantHasAsk reports whether the last AssistantMessage in msgs
+// contains an AskUserQuestion tool_use block.
+func lastAssistantHasAsk(msgs []agent.Message) bool {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		am, ok := msgs[i].(*agent.AssistantMessage)
+		if !ok {
+			continue
+		}
+		for _, b := range am.Message.Content {
+			if b.Type == "tool_use" && b.Name == "AskUserQuestion" {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // Subscribe returns a snapshot of the message history and a channel that
@@ -350,7 +381,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 func (r *Runner) Start(ctx context.Context, t *Task) error {
 	r.initDefaults()
 	t.StartedAt = time.Now()
-	t.State = StateStarting
+	t.State = StateBranching
 	t.InitDoneCh()
 
 	// 1. Create branch + start container (serialized).
@@ -366,7 +397,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	slog.Info("container ready", "repo", t.Repo, "branch", t.Branch, "container", name)
 
 	// 2. Start the agent session.
-	t.State = StateRunning
+	t.State = StateStarting
 	msgCh := make(chan agent.Message, 256)
 	go func() {
 		for m := range msgCh {
@@ -403,6 +434,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 		t.State = StateFailed
 		return fmt.Errorf("write prompt: %w", err)
 	}
+	t.State = StateRunning
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return nil
 }
@@ -555,6 +587,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 		return "", fmt.Errorf("create branch: %w", err)
 	}
 
+	t.State = StateProvisioning
 	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
 	name, err := r.Container.Start(ctx, r.Dir)
 	if err != nil {
