@@ -159,6 +159,20 @@ func TestDefaultBranch(t *testing.T) {
 	if got != "main" {
 		t.Fatalf("got %q after checkout, want %q", got, "main")
 	}
+
+	// Remove the symbolic ref to exercise the fallback probe path.
+	cmd = exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "--delete")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote set-head origin --delete: %v\n%s", err, out)
+	}
+	got, err = DefaultBranch(ctx, clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "main" {
+		t.Fatalf("got %q after deleting symbolic ref, want %q", got, "main")
+	}
 }
 
 func TestDiscoverReposEmpty(t *testing.T) {
