@@ -418,6 +418,21 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			if !ok {
 				continue
 			}
+
+			// Only adopt containers that wmao actually started. A
+			// container is ours if it has the relay directory (deployed
+			// by DeployRelay) or if host-side JSONL logs exist for its
+			// branch.
+			hasRelay, relayDirErr := agent.HasRelayDir(ctx, e.Name)
+			if relayDirErr != nil {
+				slog.Warn("relay dir check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayDirErr)
+			}
+			lt := task.LoadBranchLogs(s.logDir, branch)
+			if !hasRelay && lt == nil {
+				slog.Info("skipping non-wmao container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
+				continue
+			}
+
 			prompt := "(adopted) " + branch
 			var startedAt time.Time
 
@@ -438,8 +453,6 @@ func (s *Server) adoptContainers(ctx context.Context) {
 				}
 			}
 
-			// Fall back to host JSONL logs for metadata (prompt, startedAt).
-			lt := task.LoadBranchLogs(s.logDir, branch)
 			if lt != nil && lt.Prompt != "" {
 				prompt = "(adopted) " + lt.Prompt
 				startedAt = lt.StartedAt

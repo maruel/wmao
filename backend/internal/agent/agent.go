@@ -373,6 +373,20 @@ func (w *slogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// HasRelayDir checks whether the wmao relay directory exists in the container.
+// Its presence proves wmao deployed the relay at some point.
+func HasRelayDir(ctx context.Context, container string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "ssh", container, "test", "-d", relayDir)
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("test relay dir: %w", err)
+	}
+	return true, nil
+}
+
 // IsRelayRunning checks whether the relay socket exists in the container.
 func IsRelayRunning(ctx context.Context, container string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "ssh", container, "test", "-S", relaySockPath)
