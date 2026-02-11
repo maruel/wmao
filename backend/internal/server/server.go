@@ -104,7 +104,9 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 	}
 
 	s.loadTerminatedTasks()
-	s.adoptContainers(ctx)
+	if err := s.adoptContainers(ctx); err != nil {
+		return nil, fmt.Errorf("adopt containers: %w", err)
+	}
 	return s, nil
 }
 
@@ -442,11 +444,10 @@ func (s *Server) loadTerminatedTasks() {
 
 // adoptContainers discovers preexisting md containers and creates task entries
 // for them so they appear in the UI.
-func (s *Server) adoptContainers(ctx context.Context) {
+func (s *Server) adoptContainers(ctx context.Context) error {
 	entries, err := container.List(ctx)
 	if err != nil {
-		slog.Warn("failed to list containers on startup", "err", err)
-		return
+		return fmt.Errorf("list containers: %w", err)
 	}
 
 	// Map branches loaded from terminated task logs to their ID in
@@ -460,6 +461,9 @@ func (s *Server) adoptContainers(ctx context.Context) {
 	}
 	s.mu.Unlock()
 
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errs []error
 	for _, ri := range s.repos {
 		repoName := filepath.Base(ri.AbsPath)
 		runner := s.runners[ri.RelPath]
@@ -468,108 +472,121 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			if !ok {
 				continue
 			}
-
-			// Only adopt containers that wmao actually started. The
-			// relay directory (deployed by DeployRelay) is the only
-			// reliable proof that wmao owns this specific container
-			// instance. Host-side log files alone are not sufficient
-			// because they persist across container lifetimes.
-			hasRelay, relayDirErr := agent.HasRelayDir(ctx, e.Name)
-			if relayDirErr != nil {
-				slog.Warn("relay dir check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayDirErr)
-			}
-			if !hasRelay {
-				slog.Info("skipping non-wmao container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
-				continue
-			}
-			lt := task.LoadBranchLogs(s.logDir, branch)
-
-			prompt := branch
-			var startedAt time.Time
-			var stateUpdatedAt time.Time
-
-			// Check whether the relay daemon is alive in this container.
-			relayAlive, relayErr := agent.IsRelayRunning(ctx, e.Name)
-			if relayErr != nil {
-				slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
-			}
-
-			var relayMsgs []agent.Message
-			var relaySize int64
-			if relayAlive {
-				// Relay is alive — read authoritative output from container.
-				relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, e.Name)
-				if relayErr != nil {
-					slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
-					relayAlive = false
+			wg.Go(func() {
+				if err := s.adoptOne(ctx, ri, runner, e, branch, branchID); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
 				}
-			}
-
-			if lt != nil && lt.Prompt != "" {
-				prompt = lt.Prompt
-				startedAt = lt.StartedAt
-				stateUpdatedAt = lt.LastStateUpdateAt
-			}
-
-			if stateUpdatedAt.IsZero() {
-				stateUpdatedAt = time.Now().UTC()
-			}
-			t := &task.Task{
-				Prompt:         prompt,
-				Repo:           ri.RelPath,
-				Branch:         branch,
-				Container:      e.Name,
-				State:          task.StateWaiting,
-				StateUpdatedAt: stateUpdatedAt,
-				StartedAt:      startedAt,
-			}
-
-			if relayAlive && len(relayMsgs) > 0 {
-				// Relay output is authoritative — zero loss.
-				t.RestoreMessages(relayMsgs)
-				t.RelayOffset = relaySize
-				slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(relayMsgs))
-			} else if lt != nil && len(lt.Msgs) > 0 {
-				t.RestoreMessages(lt.Msgs)
-				slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(lt.Msgs))
-			}
-			t.ID = ksid.NewID()
-			t.InitDoneCh()
-			entry := &taskEntry{task: t, done: make(chan struct{})}
-
-			s.mu.Lock()
-			if oldID, ok := branchID[branch]; ok {
-				// Replace the stale terminated entry with the live container.
-				delete(s.tasks, oldID)
-			}
-			s.tasks[t.ID.String()] = entry
-			s.taskChanged()
-			s.mu.Unlock()
-
-			slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch, "relay", relayAlive)
-
-			// If relay is alive, auto-attach in background so messages
-			// resume streaming immediately.
-			if relayAlive {
-				go func() {
-					if err := runner.Reconnect(ctx, t); err != nil {
-						slog.Warn("auto-attach to relay failed", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
-					}
-				}()
-			}
-
-			// Reuse the standard Kill path: terminates the agent,
-			// then kills the container.
-			go func() {
-				defer close(entry.done)
-				result := runner.Kill(ctx, t)
-				s.mu.Lock()
-				entry.result = &result
-				s.taskChanged()
-				s.mu.Unlock()
-			}()
+			})
 		}
 	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// adoptOne investigates a single container and registers it as a task.
+func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, e container.Entry, branch string, branchID map[string]string) error {
+	// Only adopt containers that wmao actually started. The
+	// relay directory (deployed by DeployRelay) is the only
+	// reliable proof that wmao owns this specific container
+	// instance. Host-side log files alone are not sufficient
+	// because they persist across container lifetimes.
+	hasRelay, relayDirErr := agent.HasRelayDir(ctx, e.Name)
+	if relayDirErr != nil {
+		return fmt.Errorf("relay dir check for %s: %w", e.Name, relayDirErr)
+	}
+	if !hasRelay {
+		slog.Info("skipping non-wmao container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
+		return nil
+	}
+	lt := task.LoadBranchLogs(s.logDir, branch)
+
+	prompt := branch
+	var startedAt time.Time
+	var stateUpdatedAt time.Time
+
+	// Check whether the relay daemon is alive in this container.
+	relayAlive, relayErr := agent.IsRelayRunning(ctx, e.Name)
+	if relayErr != nil {
+		slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+	}
+
+	var relayMsgs []agent.Message
+	var relaySize int64
+	if relayAlive {
+		// Relay is alive — read authoritative output from container.
+		relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, e.Name)
+		if relayErr != nil {
+			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+			relayAlive = false
+		}
+	}
+
+	if lt != nil && lt.Prompt != "" {
+		prompt = lt.Prompt
+		startedAt = lt.StartedAt
+		stateUpdatedAt = lt.LastStateUpdateAt
+	}
+
+	if stateUpdatedAt.IsZero() {
+		stateUpdatedAt = time.Now().UTC()
+	}
+	t := &task.Task{
+		Prompt:         prompt,
+		Repo:           ri.RelPath,
+		Branch:         branch,
+		Container:      e.Name,
+		State:          task.StateWaiting,
+		StateUpdatedAt: stateUpdatedAt,
+		StartedAt:      startedAt,
+	}
+
+	if relayAlive && len(relayMsgs) > 0 {
+		// Relay output is authoritative — zero loss.
+		t.RestoreMessages(relayMsgs)
+		t.RelayOffset = relaySize
+		slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(relayMsgs))
+	} else if lt != nil && len(lt.Msgs) > 0 {
+		t.RestoreMessages(lt.Msgs)
+		slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(lt.Msgs))
+	}
+	t.ID = ksid.NewID()
+	t.InitDoneCh()
+	entry := &taskEntry{task: t, done: make(chan struct{})}
+
+	s.mu.Lock()
+	if oldID, ok := branchID[branch]; ok {
+		// Replace the stale terminated entry with the live container.
+		delete(s.tasks, oldID)
+	}
+	s.tasks[t.ID.String()] = entry
+	s.taskChanged()
+	s.mu.Unlock()
+
+	slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch, "relay", relayAlive)
+
+	// If relay is alive, auto-attach in background so messages
+	// resume streaming immediately.
+	if relayAlive {
+		go func() {
+			if err := runner.Reconnect(ctx, t); err != nil {
+				slog.Warn("auto-attach to relay failed", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+			}
+		}()
+	}
+
+	// Reuse the standard Kill path: terminates the agent,
+	// then kills the container.
+	go func() {
+		defer close(entry.done)
+		result := runner.Kill(ctx, t)
+		s.mu.Lock()
+		entry.result = &result
+		s.taskChanged()
+		s.mu.Unlock()
+	}()
+	return nil
 }
 
 // getTask looks up a task by the {id} path parameter.
