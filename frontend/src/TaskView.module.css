@@ -59,6 +59,12 @@
 }
 
 
+.actionError {
+  font-size: 0.8rem;
+  color: #dc3545;
+  margin-top: 0.25rem;
+}
+
 .systemInit {
   color: #888;
   font-size: 0.8rem;

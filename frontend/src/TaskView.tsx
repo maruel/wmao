@@ -41,6 +41,8 @@ export default function TaskView(props: Props) {
   const [messages, setMessages] = createSignal<EventMessage[]>([]);
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [pendingAction, setPendingAction] = createSignal<"pull" | "push" | "terminate" | null>(null);
+  const [actionError, setActionError] = createSignal<string | null>(null);
 
   createEffect(() => {
     const id = props.taskId;
@@ -103,16 +105,19 @@ export default function TaskView(props: Props) {
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
 
-  async function terminateTask() {
-    await apiTerminateTask(props.taskId);
-  }
-
-  async function pullTask() {
-    await apiPullTask(props.taskId);
-  }
-
-  async function pushTask() {
-    await apiPushTask(props.taskId);
+  async function runAction(name: "pull" | "push" | "terminate", fn: () => Promise<unknown>) {
+    if (pendingAction()) return;
+    setPendingAction(name);
+    setActionError(null);
+    try {
+      await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      setActionError(`${name} failed: ${msg}`);
+      setTimeout(() => setActionError(null), 5000);
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   return (
@@ -189,7 +194,7 @@ export default function TaskView(props: Props) {
         </Show>
       </div>
 
-      <Show when={isActive()}>
+      <Show when={isActive() || !!pendingAction()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }} class={styles.inputForm}>
           <AutoResizeTextarea
             value={input()}
@@ -200,10 +205,13 @@ export default function TaskView(props: Props) {
             class={styles.textInput}
           />
           <Button type="submit" disabled={sending() || !input().trim()}>Send</Button>
-          <Button type="button" variant="gray" onClick={() => pullTask()}>Pull</Button>
-          <Button type="button" variant="gray" onClick={() => pushTask()}>Push</Button>
-          <Button type="button" variant="red" onClick={() => terminateTask()}>Terminate</Button>
+          <Button type="button" variant="gray" loading={pendingAction() === "pull"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("pull", () => apiPullTask(id)); }}>Pull</Button>
+          <Button type="button" variant="gray" loading={pendingAction() === "push"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("push", () => apiPushTask(id)); }}>Push</Button>
+          <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }}>Terminate</Button>
         </form>
+        <Show when={actionError()}>
+          <div class={styles.actionError}>{actionError()}</div>
+        </Show>
       </Show>
     </div>
   );
