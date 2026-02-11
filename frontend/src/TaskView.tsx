@@ -267,7 +267,7 @@ function MessageItem(props: { ev: EventMessage }) {
           <div class={`${styles.result} ${result.isError ? styles.resultError : styles.resultSuccess}`}>
             <strong>{result.isError ? "Error" : "Done"}</strong>
             <Show when={result.result}>
-              <div class={styles.resultText}>{result.result}</div>
+              <div class={styles.resultText}><Markdown text={result.result} /></div>
             </Show>
             <div class={styles.resultMeta}>
               ${result.totalCostUSD.toFixed(4)} &middot; {(result.durationMs / 1000).toFixed(1)}s &middot; {result.numTurns} turns
