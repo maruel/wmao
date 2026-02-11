@@ -125,33 +125,23 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
-	// Serve embedded frontend with SPA fallback: serve the file if it exists,
-	// otherwise serve index.html for client-side routing.
+	// Serve embedded frontend with SPA fallback and precompressed variants.
 	dist, err := fs.Sub(frontend.Files, "dist")
 	if err != nil {
 		return err
 	}
-	fileServer := http.FileServerFS(dist)
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		// Try to stat the requested path. Serve the file if it exists.
-		p := r.URL.Path
-		if p != "/" {
-			if _, err := fs.Stat(dist, p[1:]); err == nil {
-				fileServer.ServeHTTP(w, r)
-				return
-			}
-		}
-		// SPA fallback: serve index.html with no-cache so the frontend
-		// can detect rebuilds on reconnect.
-		w.Header().Set("Cache-Control", "no-cache")
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	})
+	mux.HandleFunc("GET /", newStaticHandler(dist))
+
+	// Middleware chain: logging → decompress → compress → mux.
+	// Logging sees compressed bytes (accurate wire-size reporting).
+	var inner http.Handler = mux
+	inner = compressMiddleware(inner)
+	inner = decompressMiddleware(inner)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
-		mux.ServeHTTP(rw, r)
+		inner.ServeHTTP(rw, r)
 		slog.InfoContext(r.Context(), "http",
 			"m", r.Method,
 			"p", r.URL.Path,
