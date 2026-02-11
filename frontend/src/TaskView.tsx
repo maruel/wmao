@@ -8,7 +8,7 @@ import styles from "./TaskView.module.css";
 
 // A group of consecutive events that should be rendered together.
 interface MessageGroup {
-  kind: "text" | "tool" | "ask" | "other";
+  kind: "text" | "tool" | "ask" | "userInput" | "other";
   events: EventMessage[];
   // For "tool" groups: paired tool_use and tool_result events.
   toolCalls: ToolCall[];
@@ -35,11 +35,12 @@ interface Props {
   taskState: string;
   taskQuery: string;
   onClose: () => void;
+  inputDraft: string;
+  onInputDraft: (value: string) => void;
 }
 
 export default function TaskView(props: Props) {
   const [messages, setMessages] = createSignal<EventMessage[]>([]);
-  const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const [pendingAction, setPendingAction] = createSignal<"pull" | "push" | "terminate" | null>(null);
   const [actionError, setActionError] = createSignal<string | null>(null);
@@ -92,12 +93,12 @@ export default function TaskView(props: Props) {
   });
 
   async function sendInput() {
-    const text = input().trim();
+    const text = props.inputDraft.trim();
     if (!text) return;
     setSending(true);
     try {
       await apiSendInput(props.taskId, { prompt: text });
-      setInput("");
+      props.onInputDraft("");
     } finally {
       setSending(false);
     }
@@ -177,6 +178,11 @@ export default function TaskView(props: Props) {
                               />
                             )}
                           </Match>
+                          <Match when={group.kind === "userInput" && group.events[0]?.userInput} keyed>
+                            {(ui) => (
+                              <div class={styles.userInputMsg}>{ui.text}</div>
+                            )}
+                          </Match>
                           <Match when={group.kind === "tool"}>
                             <ToolMessageGroup toolCalls={group.toolCalls} />
                           </Match>
@@ -202,14 +208,14 @@ export default function TaskView(props: Props) {
       <Show when={isActive() || !!pendingAction()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }} class={styles.inputForm}>
           <AutoResizeTextarea
-            value={input()}
-            onInput={setInput}
+            value={props.inputDraft}
+            onInput={props.onInputDraft}
             onSubmit={sendInput}
             placeholder="Send message to agent..."
             disabled={sending()}
             class={styles.textInput}
           />
-          <Button type="submit" disabled={sending() || !input().trim()}>Send</Button>
+          <Button type="submit" disabled={sending() || !props.inputDraft.trim()}>Send</Button>
           <Button type="button" variant="gray" loading={pendingAction() === "pull"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("pull", () => apiPullTask(id)); }}>Pull</Button>
           <Button type="button" variant="gray" loading={pendingAction() === "push"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("push", () => apiPushTask(id)); }}>Push</Button>
           <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }}>Terminate</Button>
@@ -320,6 +326,9 @@ function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         if (ev.ask) {
           groups.push({ kind: "ask", events: [ev], toolCalls: [], ask: ev.ask });
         }
+        break;
+      case "userInput":
+        groups.push({ kind: "userInput", events: [ev], toolCalls: [] });
         break;
       case "usage":
         {
@@ -434,6 +443,11 @@ function ElidedTurn(props: { turn: Turn }) {
                       {ask.questions[0]?.question ?? "Question"}
                     </div>
                   </div>
+                )}
+              </Match>
+              <Match when={group.kind === "userInput" && group.events[0]?.userInput} keyed>
+                {(ui) => (
+                  <div class={styles.userInputMsg}>{ui.text}</div>
                 )}
               </Match>
               <Match when={group.kind === "tool"}>

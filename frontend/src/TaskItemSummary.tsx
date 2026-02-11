@@ -34,27 +34,31 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
           <span class={styles.badge} style={{ background: stateColor(props.state) }}>
             {props.state}
           </span>
-          <Show when={props.stateUpdatedAt > 0 && props.state !== "terminated"}>
-            <StateDuration stateUpdatedAt={props.stateUpdatedAt} now={props.now} />
-          </Show>
         </span>
       </div>
       <Show when={props.repo || props.branch}>
-        <div class={styles.meta}>
-          <Show when={props.repoURL} fallback={props.repo}>
-            <a class={styles.repoLink} href={props.repoURL} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{props.repo}</a>
+        <div class={styles.metaRow}>
+          <span class={styles.meta}>
+            <Show when={props.repoURL} fallback={props.repo}>
+              <a class={styles.repoLink} href={props.repoURL} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{props.repo}</a>
+            </Show>
+            {props.repo && props.branch ? " · " : ""}{props.branch}
+          </span>
+          <Show when={props.stateUpdatedAt > 0 && props.state !== "terminated"}>
+            <StateDuration stateUpdatedAt={props.stateUpdatedAt} now={props.now} />
           </Show>
-          {props.repo && props.branch ? " · " : ""}{props.branch}
         </div>
       </Show>
       <Show when={props.claudeCodeVersion || props.model}>
-        <div class={styles.meta}>
-          {props.claudeCodeVersion}{props.claudeCodeVersion && props.model ? " · " : ""}{props.model}
-          <Show when={props.costUSD > 0}>
-            {" · "}${props.costUSD.toFixed(2)}
-          </Show>
+        <div class={styles.metaRow}>
+          <span class={styles.meta}>
+            {props.claudeCodeVersion}{props.claudeCodeVersion && props.model ? " · " : ""}{props.model}
+            <Show when={props.costUSD > 0}>
+              {" · "}${props.costUSD.toFixed(2)}
+            </Show>
+          </span>
           <Show when={(props.containerUptimeMs ?? 0) > 0}>
-            {" · "}{formatUptime(props.containerUptimeMs ?? 0)}
+            <span class={styles.duration}>{formatUptime(props.containerUptimeMs ?? 0)}</span>
           </Show>
         </div>
       </Show>

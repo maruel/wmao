@@ -21,6 +21,9 @@ export default function App() {
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
 
+  // Per-task input drafts survive task switching.
+  const [inputDrafts, setInputDrafts] = createSignal<Map<string, string>>(new Map());
+
   // Track previous task states to detect transitions to "waiting".
   let prevStates = new Map<string, string>();
 
@@ -187,6 +190,8 @@ export default function App() {
                   taskState={selectedTask()?.state ?? "pending"}
                   taskQuery={selectedTask()?.task ?? ""}
                   onClose={() => navigate("/")}
+                  inputDraft={inputDrafts().get(id) ?? ""}
+                  onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
                 />
               </div>
             )}

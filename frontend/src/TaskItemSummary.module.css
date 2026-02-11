@@ -49,6 +49,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
 .meta {
   font-size: 0.75rem;
   color: #777;

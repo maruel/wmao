@@ -97,6 +97,10 @@ export const EventKindResult: EventKind = "result";
  */
 export const EventKindSystem: EventKind = "system";
 /**
+ * Event kind constants.
+ */
+export const EventKindUserInput: EventKind = "userInput";
+/**
  * EventMessage is a single SSE event sent to the frontend. The Kind field
  * determines which payload field is non-nil.
  */
@@ -111,6 +115,7 @@ export interface EventMessage {
   usage?: EventUsage; // Kind "usage".
   result?: EventResult; // Kind "result".
   system?: EventSystem; // Kind "system".
+  userInput?: EventUserInput; // Kind "userInput".
 }
 /**
  * EventInit is emitted once at the start of a session.
@@ -196,6 +201,12 @@ export interface EventResult {
  */
 export interface EventSystem {
   subtype: string;
+}
+/**
+ * EventUserInput is emitted when a user sends a text message to the agent.
+ */
+export interface EventUserInput {
+  text: string;
 }
 
 //////////

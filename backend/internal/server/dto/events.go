@@ -17,6 +17,7 @@ const (
 	EventKindUsage      EventKind = "usage"
 	EventKindResult     EventKind = "result"
 	EventKindSystem     EventKind = "system"
+	EventKindUserInput  EventKind = "userInput"
 )
 
 // EventMessage is a single SSE event sent to the frontend. The Kind field
@@ -32,6 +33,7 @@ type EventMessage struct {
 	Usage      *EventUsage      `json:"usage,omitempty"`      // Kind "usage".
 	Result     *EventResult     `json:"result,omitempty"`     // Kind "result".
 	System     *EventSystem     `json:"system,omitempty"`     // Kind "system".
+	UserInput  *EventUserInput  `json:"userInput,omitempty"`  // Kind "userInput".
 }
 
 // EventInit is emitted once at the start of a session.
@@ -107,4 +109,9 @@ type EventResult struct {
 // EventSystem is a generic system event (status, compact_boundary, etc.).
 type EventSystem struct {
 	Subtype string `json:"subtype"`
+}
+
+// EventUserInput is emitted when a user sends a text message to the agent.
+type EventUserInput struct {
+	Text string `json:"text"`
 }

@@ -256,20 +256,36 @@ func TestExtractToolError(t *testing.T) {
 	}
 }
 
-func TestConvertUserNoParentID(t *testing.T) {
+func TestConvertUserNoParentID_Empty(t *testing.T) {
 	tt := newToolTimingTracker()
 	user := &agent.UserMessage{
 		MessageType: "user",
 		Message:     json.RawMessage(`{}`),
 	}
 	events := tt.convertMessage(user, time.Now())
+	if len(events) != 0 {
+		t.Fatalf("got %d events, want 0 for empty user message", len(events))
+	}
+}
+
+func TestConvertUserInput(t *testing.T) {
+	tt := newToolTimingTracker()
+	user := &agent.UserMessage{
+		MessageType: "user",
+		Message:     json.RawMessage(`{"role":"user","content":"hello agent"}`),
+	}
+	events := tt.convertMessage(user, time.Now())
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].ToolResult.ToolUseID != "" {
-		t.Errorf("toolUseID = %q, want empty", events[0].ToolResult.ToolUseID)
+	ev := events[0]
+	if ev.Kind != dto.EventKindUserInput {
+		t.Errorf("kind = %q, want %q", ev.Kind, dto.EventKindUserInput)
 	}
-	if events[0].ToolResult.DurationMs != 0 {
-		t.Errorf("durationMs = %d, want 0", events[0].ToolResult.DurationMs)
+	if ev.UserInput == nil {
+		t.Fatal("userInput payload is nil")
+	}
+	if ev.UserInput.Text != "hello agent" {
+		t.Errorf("text = %q, want %q", ev.UserInput.Text, "hello agent")
 	}
 }

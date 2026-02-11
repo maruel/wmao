@@ -139,16 +139,23 @@ func (tt *toolTimingTracker) convertAssistant(m *agent.AssistantMessage, ts int6
 }
 
 func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now time.Time) []dto.EventMessage {
-	toolUseID := ""
-	if m.ParentToolUseID != nil {
-		toolUseID = *m.ParentToolUseID
-	}
-	var durationMs int64
-	if toolUseID != "" {
-		if started, ok := tt.pending[toolUseID]; ok {
-			durationMs = now.Sub(started).Milliseconds()
-			delete(tt.pending, toolUseID)
+	// User text input (no parent tool) vs tool result.
+	if m.ParentToolUseID == nil {
+		text := extractUserInputText(m.Message)
+		if text == "" {
+			return nil
 		}
+		return []dto.EventMessage{{
+			Kind:      dto.EventKindUserInput,
+			Ts:        ts,
+			UserInput: &dto.EventUserInput{Text: text},
+		}}
+	}
+	toolUseID := *m.ParentToolUseID
+	var durationMs int64
+	if started, ok := tt.pending[toolUseID]; ok {
+		durationMs = now.Sub(started).Milliseconds()
+		delete(tt.pending, toolUseID)
 	}
 	errText := extractToolError(m.Message)
 	return []dto.EventMessage{{
@@ -171,6 +178,22 @@ func parseAskInput(raw json.RawMessage) []dto.AskQuestion {
 		return input.Questions
 	}
 	return nil
+}
+
+// extractUserInputText extracts the text from a user input message.
+// User inputs have the shape {"role":"user","content":"the text"}.
+func extractUserInputText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(raw, &msg) == nil && msg.Role == "user" {
+		return msg.Content
+	}
+	return ""
 }
 
 // extractToolError checks if a UserMessage contains an error indicator.
