@@ -8,6 +8,7 @@ export interface TaskItemSummaryProps {
   state: string;
   stateUpdatedAt: number;
   repo: string;
+  repoURL?: string;
   branch: string;
   model?: string;
   claudeCodeVersion?: string;
@@ -38,24 +39,24 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
           </Show>
         </span>
       </div>
-      <Show when={props.repo}>
-        <div class={styles.meta}>{props.repo}</div>
+      <Show when={props.repo || props.branch}>
+        <div class={styles.meta}>
+          <Show when={props.repoURL} fallback={props.repo}>
+            <a class={styles.repoLink} href={props.repoURL} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{props.repo}</a>
+          </Show>
+          {props.repo && props.branch ? " · " : ""}{props.branch}
+        </div>
       </Show>
-      <Show when={props.branch}>
-        <div class={styles.branch}>{props.branch}</div>
-      </Show>
-      <Show when={props.model}>
-        <div class={styles.meta}>{props.model}{props.claudeCodeVersion ? ` · ${props.claudeCodeVersion}` : ""}</div>
-      </Show>
-      <Show when={props.costUSD > 0}>
-        <span class={styles.cost}>
-          ${props.costUSD.toFixed(4)} &middot; {(props.durationMs / 1000).toFixed(1)}s &middot; {props.numTurns} turns
-        </span>
-      </Show>
-      <Show when={(props.containerUptimeMs ?? 0) > 0}>
-        <span class={styles.cost}>
-          container {formatUptime(props.containerUptimeMs ?? 0)}
-        </span>
+      <Show when={props.claudeCodeVersion || props.model}>
+        <div class={styles.meta}>
+          {props.claudeCodeVersion}{props.claudeCodeVersion && props.model ? " · " : ""}{props.model}
+          <Show when={props.costUSD > 0}>
+            {" · "}${props.costUSD.toFixed(4)}
+          </Show>
+          <Show when={(props.containerUptimeMs ?? 0) > 0}>
+            {" · "}{formatUptime(props.containerUptimeMs ?? 0)}
+          </Show>
+        </div>
       </Show>
       <Show when={props.error}>
         <div class={styles.error}>{props.error}</div>

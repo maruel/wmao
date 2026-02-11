@@ -41,6 +41,7 @@ export default function TaskList(props: TaskListProps) {
               state={t().state}
               stateUpdatedAt={t().stateUpdatedAt}
               repo={t().repo}
+              repoURL={t().repoURL}
               branch={t().branch}
               model={t().model}
               claudeCodeVersion={t().claudeCodeVersion}

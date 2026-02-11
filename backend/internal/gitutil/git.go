@@ -140,6 +140,49 @@ func MaxBranchSeqNum(ctx context.Context, dir string) (int, error) {
 	return highest, nil
 }
 
+// RemoteOriginURL returns the URL of the "origin" remote, or "" if
+// unavailable.
+func RemoteOriginURL(ctx context.Context, dir string) string {
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// RemoteToHTTPS converts a git remote URL to an HTTPS browse URL.
+// SSH (git@host:owner/repo.git), ssh:// and https:// with .git suffix are
+// normalised. Unrecognised formats are returned as-is.
+func RemoteToHTTPS(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	// git@host:owner/repo.git → https://host/owner/repo
+	if after, ok := strings.CutPrefix(raw, "git@"); ok {
+		if i := strings.IndexByte(after, ':'); i > 0 {
+			host := after[:i]
+			path := strings.TrimSuffix(after[i+1:], ".git")
+			return "https://" + host + "/" + path
+		}
+	}
+	// ssh://git@host/owner/repo.git → https://host/owner/repo
+	if after, ok := strings.CutPrefix(raw, "ssh://"); ok {
+		// Strip user@ if present.
+		if i := strings.IndexByte(after, '@'); i >= 0 {
+			after = after[i+1:]
+		}
+		return "https://" + strings.TrimSuffix(after, ".git")
+	}
+	// https://host/owner/repo.git → strip .git
+	if strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "http://") {
+		return strings.TrimSuffix(raw, ".git")
+	}
+	return raw
+}
+
 // DiscoverRepos recursively walks root up to maxDepth levels, returning
 // absolute paths of directories containing a .git subdirectory. Hidden
 // directories (prefix ".") are skipped. Recursion stops once .git is found.

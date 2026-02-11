@@ -175,6 +175,29 @@ func TestDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestRemoteToHTTPS(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"git@github.com:owner/repo.git", "https://github.com/owner/repo"},
+		{"git@github.com:owner/repo", "https://github.com/owner/repo"},
+		{"ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo"},
+		{"ssh://git@gitlab.com/owner/repo.git", "https://gitlab.com/owner/repo"},
+		{"https://github.com/owner/repo.git", "https://github.com/owner/repo"},
+		{"https://github.com/owner/repo", "https://github.com/owner/repo"},
+		{"http://github.com/owner/repo.git", "http://github.com/owner/repo"},
+		{"", ""},
+		{"  git@github.com:o/r.git  ", "https://github.com/o/r"},
+	}
+	for _, tt := range tests {
+		got := RemoteToHTTPS(tt.in)
+		if got != tt.want {
+			t.Errorf("RemoteToHTTPS(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestDiscoverReposEmpty(t *testing.T) {
 	root := t.TempDir()
 	repos, err := DiscoverRepos(root, 3)

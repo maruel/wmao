@@ -10,6 +10,7 @@ import "github.com/maruel/ksid"
 type RepoJSON struct {
 	Path       string `json:"path"`
 	BaseBranch string `json:"baseBranch"`
+	RepoURL    string `json:"repoURL,omitempty"`
 }
 
 // TaskJSON is the JSON representation sent to the frontend.
@@ -17,6 +18,7 @@ type TaskJSON struct {
 	ID             ksid.ID `json:"id"`
 	Task           string  `json:"task"`
 	Repo           string  `json:"repo"`
+	RepoURL        string  `json:"repoURL,omitempty"`
 	Branch         string  `json:"branch"`
 	Container      string  `json:"container"`
 	State          string  `json:"state"`

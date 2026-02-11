@@ -31,6 +31,7 @@ type repoInfo struct {
 	RelPath    string // e.g. "github/wmao" — used as API ID.
 	AbsPath    string
 	BaseBranch string
+	RepoURL    string // HTTPS browse URL derived from origin remote.
 }
 
 // Server is the HTTP server for the wmao web UI.
@@ -84,7 +85,8 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 			slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
 			continue
 		}
-		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch}
+		repoURL := gitutil.RemoteToHTTPS(gitutil.RemoteOriginURL(ctx, abs))
+		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch, RepoURL: repoURL}
 		s.repos = append(s.repos, ri)
 		runner := &task.Runner{
 			BaseBranch: branch,
@@ -186,7 +188,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.RepoJSON, error) {
 	out := make([]dto.RepoJSON, len(s.repos))
 	for i, r := range s.repos {
-		out[i] = dto.RepoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch}
+		out[i] = dto.RepoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
 	}
 	return &out, nil
 }
@@ -195,7 +197,7 @@ func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.TaskJSON,
 	s.mu.Lock()
 	out := make([]dto.TaskJSON, 0, len(s.tasks))
 	for _, e := range s.tasks {
-		out = append(out, toJSON(e))
+		out = append(out, s.toJSON(e))
 	}
 	s.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -333,7 +335,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		out := make([]dto.TaskJSON, 0, len(s.tasks))
 		for _, e := range s.tasks {
-			out = append(out, toJSON(e))
+			out = append(out, s.toJSON(e))
 		}
 		ch := s.changed
 		s.mu.Unlock()
@@ -636,11 +638,21 @@ func (s *Server) notifyTaskChange() {
 	s.mu.Unlock()
 }
 
-func toJSON(e *taskEntry) dto.TaskJSON {
+func (s *Server) repoURL(rel string) string {
+	for _, r := range s.repos {
+		if r.RelPath == rel {
+			return r.RepoURL
+		}
+	}
+	return ""
+}
+
+func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 	j := dto.TaskJSON{
 		ID:                e.task.ID,
 		Task:              e.task.Prompt,
 		Repo:              e.task.Repo,
+		RepoURL:           s.repoURL(e.task.Repo),
 		Branch:            e.task.Branch,
 		Container:         e.task.Container,
 		State:             e.task.State.String(),

@@ -210,6 +210,7 @@ Exported request and response types for the wmao API.
 export interface RepoJSON {
   path: string;
   baseBranch: string;
+  repoURL?: string;
 }
 /**
  * TaskJSON is the JSON representation sent to the frontend.
@@ -218,6 +219,7 @@ export interface TaskJSON {
   id: string;
   task: string;
   repo: string;
+  repoURL?: string;
   branch: string;
   container: string;
   state: string;

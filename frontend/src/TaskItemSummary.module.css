@@ -54,9 +54,13 @@
   color: #777;
 }
 
-.branch {
-  font-size: 0.8rem;
-  color: #555;
+.repoLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.repoLink:hover {
+  text-decoration: underline;
 }
 
 .cost {
