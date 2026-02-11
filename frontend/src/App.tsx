@@ -204,7 +204,7 @@ export default function App() {
                     <span class={styles.stateBadge} style={{ background: stateColor(t().state) }}>
                       {t().state}
                     </span>
-                    <Show when={t().stateUpdatedAt > 0}>
+                    <Show when={t().stateUpdatedAt > 0 && t().state !== "terminated"}>
                       <StateDuration stateUpdatedAt={t().stateUpdatedAt} now={now} />
                     </Show>
                   </span>
