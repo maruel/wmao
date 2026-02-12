@@ -12,7 +12,7 @@ import styles from "./TaskView.module.css";
 // component remounts (task switching, memo re-evaluation).
 // Keys: toolUseID (tool calls), "group:<firstToolUseID>" (tool groups),
 // "turn:<firstEventTs>" (elided turns).
-const detailsOpenState = new Map<string, boolean>();
+export const detailsOpenState = new Map<string, boolean>();
 
 // A group of consecutive events that should be rendered together.
 interface MessageGroup {

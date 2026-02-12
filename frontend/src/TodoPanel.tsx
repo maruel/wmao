@@ -1,6 +1,7 @@
 // TodoPanel renders the agent's current todo list from TodoWrite events.
 import { For, Show, createMemo } from "solid-js";
 import type { EventMessage } from "@sdk/types.gen";
+import { detailsOpenState } from "./TaskView";
 import styles from "./TodoPanel.module.css";
 
 function statusIcon(status: string): string {
@@ -25,6 +26,8 @@ function statusClass(status: string): string {
   }
 }
 
+const DETAILS_KEY = "todos";
+
 export default function TodoPanel(props: { messages: EventMessage[] }) {
   const todos = createMemo(() => {
     // Find the last "todo" event.
@@ -35,10 +38,16 @@ export default function TodoPanel(props: { messages: EventMessage[] }) {
     return [];
   });
 
+  const isOpen = () => detailsOpenState.get(DETAILS_KEY) ?? true;
+
   return (
     <Show when={todos().length > 0}>
-      <div class={styles.panel}>
-        <h4 class={styles.heading}>Todos</h4>
+      <details
+        class={styles.panel}
+        open={isOpen()}
+        onToggle={(e) => detailsOpenState.set(DETAILS_KEY, e.currentTarget.open)}
+      >
+        <summary class={styles.heading}>Todos</summary>
         <For each={todos()}>
           {(item) => (
             <div class={`${styles.item} ${statusClass(item.status)}`}>
@@ -47,7 +56,7 @@ export default function TodoPanel(props: { messages: EventMessage[] }) {
             </div>
           )}
         </For>
-      </div>
+      </details>
     </Show>
   );
 }

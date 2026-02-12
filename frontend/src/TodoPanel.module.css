@@ -13,6 +13,7 @@
   color: #666;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  cursor: pointer;
 }
 
 .item {
