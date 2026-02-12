@@ -39,6 +39,43 @@ func TestParseListEmpty(t *testing.T) {
 	}
 }
 
+func TestContainerName(t *testing.T) {
+	tests := []struct {
+		repo, branch, want string
+	}{
+		{"wmao", "wmao/w0", "md-wmao-wmao-w0"},
+		{"wmao", "main", "md-wmao-main"},
+		{"md", "wmao/w0", "md-md-wmao-w0"},
+		{"myrepo", "feature/xyz", "md-myrepo-feature-xyz"},
+	}
+	for _, tt := range tests {
+		if got := containerName(tt.repo, tt.branch); got != tt.want {
+			t.Errorf("containerName(%q, %q) = %q, want %q", tt.repo, tt.branch, got, tt.want)
+		}
+	}
+}
+
+func TestContainerNameRoundTrip(t *testing.T) {
+	// containerName and BranchFromContainer must be inverses for wmao/ branches.
+	cases := []struct {
+		repo, branch string
+	}{
+		{"wmao", "wmao/fix-auth"},
+		{"wmao", "wmao/w0"},
+		{"myrepo", "wmao/fix"},
+	}
+	for _, tt := range cases {
+		name := containerName(tt.repo, tt.branch)
+		got, ok := BranchFromContainer(name, tt.repo)
+		if !ok {
+			t.Errorf("BranchFromContainer(%q, %q) returned !ok", name, tt.repo)
+		}
+		if got != tt.branch {
+			t.Errorf("round-trip(%q, %q): got branch %q, want %q", tt.repo, tt.branch, got, tt.branch)
+		}
+	}
+}
+
 func TestBranchFromContainer(t *testing.T) {
 	tests := []struct {
 		name      string

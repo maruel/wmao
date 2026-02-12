@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/maruel/wmao/backend/internal/gitutil"
 )
 
 // CLI implements Ops by shelling out to the md CLI.
@@ -107,24 +109,28 @@ func parseList(raw string) []Entry {
 }
 
 // cliContainerName returns the md container name for the current repo+branch
-// by filtering the global container list to entries matching the repo derived
-// from dir.
+// by reading the checked-out branch and matching the exact container name.
 func cliContainerName(ctx context.Context, dir string) (string, error) {
+	branch, err := gitutil.CurrentBranch(ctx, dir)
+	if err != nil {
+		return "", err
+	}
 	c := CLI{}
 	entries, err := c.List(ctx)
 	if err != nil {
 		return "", err
 	}
-	repo := filepath.Base(dir)
-	prefix := "md-" + repo + "-"
-	var match string
+	want := containerName(filepath.Base(dir), branch)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name, prefix) {
-			match = e.Name
+		if e.Name == want {
+			return want, nil
 		}
 	}
-	if match == "" {
-		return "", errors.New("no md container found for repo " + repo)
-	}
-	return match, nil
+	return "", errors.New("no md container found: " + want)
+}
+
+// containerName builds the expected md container name for a repo and branch.
+// md uses the format "md-<repo>-<branch>" with "/" replaced by "-".
+func containerName(repo, branch string) string {
+	return "md-" + repo + "-" + strings.ReplaceAll(branch, "/", "-")
 }
