@@ -77,6 +77,11 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		usage:    newUsageFetcher(ctx),
 	}
 
+	ctrLib, err := container.NewLib("")
+	if err != nil {
+		return nil, fmt.Errorf("init container library: %w", err)
+	}
+
 	for _, abs := range absPaths {
 		rel, err := filepath.Rel(absRoot, abs)
 		if err != nil {
@@ -95,6 +100,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 			Dir:        abs,
 			MaxTurns:   maxTurns,
 			LogDir:     logDir,
+			Container:  ctrLib,
 		}
 		if err := runner.Init(ctx); err != nil {
 			slog.Warn("failed to init runner nextID", "path", abs, "err", err)
@@ -509,7 +515,17 @@ func (s *Server) loadTerminatedTasks() {
 // adoptContainers discovers preexisting md containers and creates task entries
 // for them so they appear in the UI.
 func (s *Server) adoptContainers(ctx context.Context) error {
-	entries, err := container.List(ctx)
+	// Use the first runner's container backend for listing. All runners
+	// share the same Ops implementation.
+	var ops container.Ops
+	for _, r := range s.runners {
+		ops = r.Container
+		break
+	}
+	if ops == nil {
+		return nil
+	}
+	entries, err := ops.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
 	}

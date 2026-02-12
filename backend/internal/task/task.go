@@ -326,7 +326,8 @@ type Runner struct {
 	MaxTurns   int
 	LogDir     string // If set, raw JSONL session logs are written here.
 
-	// Container provides md container lifecycle operations. Defaults to container.MD{}.
+	// Container provides md container lifecycle operations. Must be set before
+	// calling Start (use container.NewLib to create one).
 	Container container.Ops
 	// AgentStartFn launches an agent session. Defaults to agent.Start.
 	AgentStartFn func(ctx context.Context, container string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)
@@ -338,9 +339,6 @@ type Runner struct {
 
 func (r *Runner) initDefaults() {
 	r.initOnce.Do(func() {
-		if r.Container == nil {
-			r.Container = container.MD{}
-		}
 		if r.AgentStartFn == nil {
 			r.AgentStartFn = agent.StartWithRelay
 		}
@@ -451,6 +449,9 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 // Call Kill to close the session.
 func (r *Runner) Start(ctx context.Context, t *Task) error {
 	r.initDefaults()
+	if r.Container == nil {
+		return errors.New("runner has no container backend configured")
+	}
 	t.StartedAt = time.Now().UTC()
 	t.setState(StateBranching)
 	t.InitDoneCh()

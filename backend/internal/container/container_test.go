@@ -2,6 +2,16 @@ package container
 
 import "testing"
 
+func TestNewLib(t *testing.T) {
+	lib, err := NewLib("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Client == nil {
+		t.Fatal("NewLib returned Lib with nil Client")
+	}
+}
+
 func TestParseList(t *testing.T) {
 	raw := `md-wmao-wmao-fix-auth   running   5 minutes ago
 md-wmao-wmao-add-tests  stopped   1 hour ago
