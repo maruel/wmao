@@ -419,12 +419,24 @@ func TestTerminatedTaskEventsAfterRestart(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	// Parse SSE events from the response body.
+	// Parse SSE events from the response body. Only collect "message"
+	// events; skip control events like "ready".
 	body := w.Body.String()
 	var events []dto.EventMessage
+	eventType := "message" // SSE default
 	for _, line := range strings.Split(body, "\n") {
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			eventType = after
+			continue
+		}
 		after, ok := strings.CutPrefix(line, "data: ")
 		if !ok {
+			if line == "" {
+				eventType = "message" // reset after blank line
+			}
+			continue
+		}
+		if eventType != "message" {
 			continue
 		}
 		var ev dto.EventMessage

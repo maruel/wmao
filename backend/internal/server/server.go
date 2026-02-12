@@ -339,6 +339,9 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	for _, msg := range history {
 		writeEvents(tracker.convertMessage(msg, now))
 	}
+	// Signal the client that history replay is complete so it can swap
+	// the buffered messages atomically, avoiding a flash of empty content.
+	_, _ = fmt.Fprint(w, "event: ready\ndata: {}\n\n")
 	flusher.Flush()
 
 	// Terminal tasks (terminated, failed) will never produce new messages.

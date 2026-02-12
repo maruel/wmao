@@ -51,7 +51,7 @@ export default function TaskView(props: Props) {
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let delay = 500;
-    // Buffer accumulates replayed history; swapped into signal on stream open.
+    // Buffer accumulates replayed history; swapped into signal on "ready" event.
     let buf: EventMessage[] = [];
     let live = false;
 
@@ -67,7 +67,10 @@ export default function TaskView(props: Props) {
       });
       es.addEventListener("open", () => {
         delay = 500;
-        // History replay is complete; swap buffer in atomically.
+      });
+      // The server sends a "ready" event after replaying full history.
+      // Swap the buffer in atomically to avoid a flash of empty content.
+      es.addEventListener("ready", () => {
         live = true;
         setMessages(buf);
       });
@@ -75,8 +78,9 @@ export default function TaskView(props: Props) {
         es?.close();
         es = null;
         // For terminal tasks the server closes the stream after sending
-        // history. If we already received data, don't reconnect.
-        if (live && messages().length > 0) {
+        // history — no new messages will arrive, so stop reconnecting.
+        const st = props.taskState;
+        if (live && messages().length > 0 && (st === "terminated" || st === "failed")) {
           return;
         }
         timer = setTimeout(connect, delay);
