@@ -510,6 +510,47 @@ function toolCallDetail(name: string, input: Record<string, unknown>): string {
   }
 }
 
+// Returns true if every value in the object is a scalar (string, number, boolean, null).
+function isFlat(obj: Record<string, unknown>): boolean {
+  return Object.values(obj).every(
+    (v) => v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean",
+  );
+}
+
+// Formats a scalar value for display: strings as-is, others via JSON.
+function fmtValue(v: unknown): string {
+  if (typeof v === "string") return v;
+  return JSON.stringify(v);
+}
+
+function ToolCallInput(props: { input: Record<string, unknown> }) {
+  const flat = () => isFlat(props.input);
+  return (
+    <Show
+      when={flat()}
+      fallback={
+        <pre class={styles.toolBlockPre}>{JSON.stringify(props.input, null, 2)}</pre>
+      }
+    >
+      <div class={styles.toolInputList}>
+        <For each={Object.entries(props.input)}>
+          {([k, v]) => {
+            const multiline = typeof v === "string" && v.includes("\n");
+            return (
+              <div class={styles.toolInputRow}>
+                <span class={styles.toolInputKey}>{k}:</span>
+                {multiline
+                  ? <pre class={styles.toolInputBlock}>{v as string}</pre>
+                  : <>{" "}{fmtValue(v)}</>}
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </Show>
+  );
+}
+
 function ToolCallBlock(props: { call: ToolCall }) {
   const duration = () => props.call.result?.durationMs ?? 0;
   const error = () => props.call.result?.error ?? "";
@@ -528,9 +569,7 @@ function ToolCallBlock(props: { call: ToolCall }) {
           <span class={styles.toolError}> error</span>
         </Show>
       </summary>
-      <pre class={styles.toolBlockPre}>
-        {JSON.stringify(props.call.use.input, null, 2)}
-      </pre>
+      <ToolCallInput input={props.call.use.input ?? {}} />
       <Show when={error()}>
         <pre class={styles.toolErrorPre}>{error()}</pre>
       </Show>

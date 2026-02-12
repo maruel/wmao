@@ -302,6 +302,29 @@ a.headerRepo:hover {
   overflow: auto;
 }
 
+.toolInputList {
+  font-size: 0.75rem;
+  margin: 0.15rem 0;
+  line-height: 1.35;
+}
+
+.toolInputRow {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.toolInputKey {
+  color: #666;
+  font-weight: 500;
+}
+
+.toolInputBlock {
+  margin: 0;
+  padding-left: 1em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .elidedTurn {
   margin-bottom: 0.35rem;
   background: #e4eaf1;
