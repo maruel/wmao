@@ -573,6 +573,14 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 		res.NumTurns = result.NumTurns
 		res.AgentResult = result.Result
 	}
+	// Use accumulated live stats when they exceed the session result
+	// (e.g. adopted container after restart where the session only
+	// reflects the reconnected portion, not the full run).
+	if liveCost, liveTurns, liveDur := t.LiveStats(); liveCost > res.CostUSD {
+		res.CostUSD = liveCost
+		res.NumTurns = liveTurns
+		res.DurationMs = liveDur
+	}
 	// waitErr is intentionally ignored: the user requested termination, so a
 	// missing result message or non-zero exit is expected, not an error.
 	finishLog(&res)

@@ -296,6 +296,53 @@ func TestRunnerInitSkipsExisting(t *testing.T) {
 	}
 }
 
+func TestKillNoSessionUsesLiveStats(t *testing.T) {
+	// Simulate an adopted task after server restart: no active session, but
+	// live stats were restored from log messages. Kill should fall back to
+	// LiveStats for the result cost.
+	clone := initTestRepo(t, "main")
+	r := &Runner{
+		BaseBranch: "main",
+		Dir:        clone,
+	}
+
+	tk := &Task{
+		ID:     ksid.NewID(),
+		Prompt: "test",
+		Repo:   "org/repo",
+		Branch: "main",
+		State:  StateRunning,
+	}
+	tk.InitDoneCh()
+
+	// Restore messages with cost info (simulates RestoreMessages from logs).
+	tk.RestoreMessages([]agent.Message{
+		&agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 0.42,
+			NumTurns:     5,
+			DurationMs:   12345,
+		},
+	})
+
+	// Signal termination immediately.
+	tk.Terminate()
+
+	result := r.Kill(t.Context(), tk)
+	if result.State != StateTerminated {
+		t.Errorf("state = %v, want %v", result.State, StateTerminated)
+	}
+	if result.CostUSD != 0.42 {
+		t.Errorf("CostUSD = %f, want 0.42", result.CostUSD)
+	}
+	if result.NumTurns != 5 {
+		t.Errorf("NumTurns = %d, want 5", result.NumTurns)
+	}
+	if result.DurationMs != 12345 {
+		t.Errorf("DurationMs = %d, want 12345", result.DurationMs)
+	}
+}
+
 func TestRestoreMessages(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
 		tk := &Task{Prompt: "test", State: StateRunning}

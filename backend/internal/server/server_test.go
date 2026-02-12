@@ -453,6 +453,108 @@ func TestTerminatedTaskEventsAfterRestart(t *testing.T) {
 	}
 }
 
+func TestLoadTerminatedTasksCostInJSON(t *testing.T) {
+	logDir := t.TempDir()
+
+	meta := mustJSON(t, agent.MetaMessage{
+		MessageType: "wmao_meta", Version: 1, Prompt: "fix bug",
+		Repo: "r", Branch: "wmao/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	initMsg := mustJSON(t, agent.SystemInitMessage{
+		MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
+	})
+	result := mustJSON(t, agent.ResultMessage{
+		MessageType: "result", Subtype: "success", Result: "done",
+		TotalCostUSD: 1.23, DurationMs: 5000, NumTurns: 3,
+	})
+	trailer := mustJSON(t, agent.MetaResultMessage{
+		MessageType: "wmao_result", State: "terminated",
+		CostUSD: 1.23, DurationMs: 5000, NumTurns: 3,
+	})
+	writeLogFile(t, logDir, "task.jsonl", meta, initMsg, result, trailer)
+
+	s := &Server{
+		runners: map[string]*task.Runner{},
+		tasks:   make(map[string]*taskEntry),
+		changed: make(chan struct{}),
+		logDir:  logDir,
+	}
+	s.loadTerminatedTasks()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.tasks) != 1 {
+		t.Fatalf("len(tasks) = %d, want 1", len(s.tasks))
+	}
+	for _, e := range s.tasks {
+		j := s.toJSON(e)
+		if j.CostUSD != 1.23 {
+			t.Errorf("CostUSD = %f, want 1.23", j.CostUSD)
+		}
+		if j.DurationMs != 5000 {
+			t.Errorf("DurationMs = %d, want 5000", j.DurationMs)
+		}
+		if j.NumTurns != 3 {
+			t.Errorf("NumTurns = %d, want 3", j.NumTurns)
+		}
+		if j.Model != "claude-opus-4-6" {
+			t.Errorf("Model = %q, want %q", j.Model, "claude-opus-4-6")
+		}
+		if j.ClaudeCodeVersion != "2.0" {
+			t.Errorf("ClaudeCodeVersion = %q, want %q", j.ClaudeCodeVersion, "2.0")
+		}
+	}
+}
+
+func TestLoadTerminatedTasksBackfillsCostFromMessages(t *testing.T) {
+	logDir := t.TempDir()
+
+	// Trailer has zero cost (e.g. session exited without final ResultMessage),
+	// but the messages contain a ResultMessage with cost.
+	meta := mustJSON(t, agent.MetaMessage{
+		MessageType: "wmao_meta", Version: 1, Prompt: "fix bug",
+		Repo: "r", Branch: "wmao/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	initMsg := mustJSON(t, agent.SystemInitMessage{
+		MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
+	})
+	result := mustJSON(t, agent.ResultMessage{
+		MessageType: "result", Subtype: "success", Result: "done",
+		TotalCostUSD: 0.42, DurationMs: 3000, NumTurns: 2,
+	})
+	trailer := mustJSON(t, agent.MetaResultMessage{
+		MessageType: "wmao_result", State: "terminated",
+		// CostUSD intentionally zero.
+	})
+	writeLogFile(t, logDir, "task.jsonl", meta, initMsg, result, trailer)
+
+	s := &Server{
+		runners: map[string]*task.Runner{},
+		tasks:   make(map[string]*taskEntry),
+		changed: make(chan struct{}),
+		logDir:  logDir,
+	}
+	s.loadTerminatedTasks()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.tasks) != 1 {
+		t.Fatalf("len(tasks) = %d, want 1", len(s.tasks))
+	}
+	for _, e := range s.tasks {
+		j := s.toJSON(e)
+		if j.CostUSD != 0.42 {
+			t.Errorf("CostUSD = %f, want 0.42 (should be backfilled from ResultMessage)", j.CostUSD)
+		}
+		if j.NumTurns != 2 {
+			t.Errorf("NumTurns = %d, want 2", j.NumTurns)
+		}
+		if j.DurationMs != 3000 {
+			t.Errorf("DurationMs = %d, want 3000", j.DurationMs)
+		}
+	}
+}
+
 func TestLoadTerminatedTasksEmptyLogDir(t *testing.T) {
 	s := &Server{
 		runners: map[string]*task.Runner{},

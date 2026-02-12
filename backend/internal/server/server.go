@@ -492,6 +492,11 @@ func (s *Server) loadTerminatedTasks() {
 		if lt.Msgs != nil {
 			t.RestoreMessages(lt.Msgs)
 		}
+		// Backfill result stats from restored messages when the trailer
+		// has zero cost (e.g. session exited without a final ResultMessage).
+		if lt.Result.CostUSD == 0 {
+			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs = t.LiveStats()
+		}
 		done := make(chan struct{})
 		close(done)
 		entry := &taskEntry{task: t, result: lt.Result, done: done}
