@@ -438,10 +438,16 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
   // groups stay visible as new tool calls arrive.
   const [userOpen, setUserOpen] = createSignal<boolean | undefined>(undefined);
   const isOpen = () => userOpen() ?? true;
+  // Preserve individual tool call open/closed state across re-renders.
+  // The parent memo recreates ToolCall objects, so <For> remounts children
+  // and unmanaged <details> state would be lost.
+  const callOpen = new Map<string, boolean>();
   return (
     <Show when={calls().length > 0}>
       <Show when={calls().length > 1} fallback={
-        <ToolCallBlock call={calls()[0]} />
+        <ToolCallBlock call={calls()[0]}
+          open={callOpen.get(calls()[0].use.toolUseID) ?? false}
+          onToggle={(v) => callOpen.set(calls()[0].use.toolUseID, v)} />
       }>
         <details class={styles.toolGroup} open={isOpen()}
           onToggle={(e) => setUserOpen(e.currentTarget.open)}>
@@ -450,7 +456,9 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
           </summary>
           <div class={styles.toolGroupInner}>
             <For each={calls()}>
-              {(call) => <ToolCallBlock call={call} />}
+              {(call) => <ToolCallBlock call={call}
+                open={callOpen.get(call.use.toolUseID) ?? false}
+                onToggle={(v) => callOpen.set(call.use.toolUseID, v)} />}
             </For>
           </div>
         </details>
@@ -581,12 +589,13 @@ function ToolCallInput(props: { input: Record<string, unknown> }) {
   );
 }
 
-function ToolCallBlock(props: { call: ToolCall }) {
+function ToolCallBlock(props: { call: ToolCall; open: boolean; onToggle: (open: boolean) => void }) {
   const duration = () => props.call.result?.durationMs ?? 0;
   const error = () => props.call.result?.error ?? "";
   const detail = () => toolCallDetail(props.call.use.name, props.call.use.input ?? {});
   return (
-    <details class={styles.toolBlock}>
+    <details class={styles.toolBlock} open={props.open}
+      onToggle={(e) => props.onToggle(e.currentTarget.open)}>
       <summary>
         {props.call.use.name}
         <Show when={detail()}>
