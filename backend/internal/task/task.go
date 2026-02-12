@@ -16,10 +16,18 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
-	"github.com/maruel/caic/backend/internal/container"
 	"github.com/maruel/caic/backend/internal/gitutil"
 	"github.com/maruel/ksid"
 )
+
+// ContainerBackend abstracts md container lifecycle operations for testability.
+type ContainerBackend interface {
+	Start(ctx context.Context, dir, branch string, labels []string) (name string, err error)
+	Diff(ctx context.Context, dir, branch string, args ...string) (string, error)
+	Pull(ctx context.Context, dir, branch string) error
+	Push(ctx context.Context, dir, branch string) error
+	Kill(ctx context.Context, dir, branch string) error
+}
 
 // State represents the lifecycle state of a task.
 type State int
@@ -327,8 +335,8 @@ type Runner struct {
 	LogDir     string // If set, raw JSONL session logs are written here.
 
 	// Container provides md container lifecycle operations. Must be set before
-	// calling Start (use container.NewLib to create one).
-	Container container.Ops
+	// calling Start.
+	Container ContainerBackend
 	// AgentStartFn launches an agent session. Defaults to agent.Start.
 	AgentStartFn func(ctx context.Context, container string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)
 

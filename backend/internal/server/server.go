@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/maruel/caic/backend/internal/server/dto"
 	"github.com/maruel/caic/backend/internal/task"
 	"github.com/maruel/ksid"
+	"github.com/maruel/md"
 )
 
 type repoInfo struct {
@@ -38,12 +40,44 @@ type repoInfo struct {
 type Server struct {
 	repos    []repoInfo
 	runners  map[string]*task.Runner // keyed by RelPath
+	mdClient *md.Client
 	mu       sync.Mutex
 	tasks    map[string]*taskEntry
 	changed  chan struct{} // closed on task mutation; replaced under mu
 	maxTurns int
 	logDir   string
 	usage    *usageFetcher // nil if no OAuth token available
+}
+
+// mdBackend adapts *md.Client to task.ContainerBackend.
+type mdBackend struct{ client *md.Client }
+
+func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string) (string, error) {
+	c := b.client.Container(dir, branch)
+	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Labels: labels}); err != nil {
+		return "", err
+	}
+	return c.Name, nil
+}
+
+func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
+	var stdout bytes.Buffer
+	if err := b.client.Container(dir, branch).Diff(ctx, &stdout, io.Discard, args); err != nil {
+		return "", err
+	}
+	return stdout.String(), nil
+}
+
+func (b *mdBackend) Pull(ctx context.Context, dir, branch string) error {
+	return b.client.Container(dir, branch).Pull(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
+}
+
+func (b *mdBackend) Push(ctx context.Context, dir, branch string) error {
+	return b.client.Container(dir, branch).Push(ctx)
+}
+
+func (b *mdBackend) Kill(ctx context.Context, dir, branch string) error {
+	return b.client.Container(dir, branch).Kill(ctx)
 }
 
 type taskEntry struct {
@@ -77,10 +111,12 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		usage:    newUsageFetcher(ctx),
 	}
 
-	ctrLib, err := container.NewLib("")
+	mdClient, err := container.New("")
 	if err != nil {
 		return nil, fmt.Errorf("init container library: %w", err)
 	}
+	s.mdClient = mdClient
+	backend := &mdBackend{client: mdClient}
 
 	for _, abs := range absPaths {
 		rel, err := filepath.Rel(absRoot, abs)
@@ -100,7 +136,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 			Dir:        abs,
 			MaxTurns:   maxTurns,
 			LogDir:     logDir,
-			Container:  ctrLib,
+			Container:  backend,
 		}
 		if err := runner.Init(ctx); err != nil {
 			slog.Warn("failed to init runner nextID", "path", abs, "err", err)
@@ -463,7 +499,7 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 }
 
 // SetRunnerOps overrides container and agent operations on all runners.
-func (s *Server) SetRunnerOps(c container.Ops, agentStart func(ctx context.Context, ctr string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)) {
+func (s *Server) SetRunnerOps(c task.ContainerBackend, agentStart func(ctx context.Context, ctr string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)) {
 	for _, r := range s.runners {
 		if c != nil {
 			r.Container = c
@@ -515,17 +551,10 @@ func (s *Server) loadTerminatedTasks() {
 // adoptContainers discovers preexisting md containers and creates task entries
 // for them so they appear in the UI.
 func (s *Server) adoptContainers(ctx context.Context) error {
-	// Use the first runner's container backend for listing. All runners
-	// share the same Ops implementation.
-	var ops container.Ops
-	for _, r := range s.runners {
-		ops = r.Container
-		break
-	}
-	if ops == nil {
+	if s.mdClient == nil {
 		return nil
 	}
-	entries, err := ops.List(ctx)
+	containers, err := s.mdClient.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
 	}
@@ -547,13 +576,13 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 	for _, ri := range s.repos {
 		repoName := filepath.Base(ri.AbsPath)
 		runner := s.runners[ri.RelPath]
-		for _, e := range entries {
-			branch, ok := container.BranchFromContainer(e.Name, repoName)
+		for _, c := range containers {
+			branch, ok := container.BranchFromContainer(c.Name, repoName)
 			if !ok {
 				continue
 			}
 			wg.Go(func() {
-				if err := s.adoptOne(ctx, ri, runner, e, branch, branchID); err != nil {
+				if err := s.adoptOne(ctx, ri, runner, c, branch, branchID); err != nil {
 					mu.Lock()
 					errs = append(errs, err)
 					mu.Unlock()
@@ -566,20 +595,20 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 }
 
 // adoptOne investigates a single container and registers it as a task.
-func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, e container.Entry, branch string, branchID map[string]string) error {
+func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, c *md.Container, branch string, branchID map[string]string) error {
 	// Only adopt containers that caic started. The caic label is set at
 	// container creation and is the authoritative proof of ownership.
-	labelVal, err := container.LabelValue(ctx, e.Name, "caic")
+	labelVal, err := container.LabelValue(ctx, c.Name, "caic")
 	if err != nil {
-		return fmt.Errorf("label check for %s: %w", e.Name, err)
+		return fmt.Errorf("label check for %s: %w", c.Name, err)
 	}
 	if labelVal == "" {
-		slog.Info("skipping non-caic container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
+		slog.Info("skipping non-caic container", "repo", ri.RelPath, "container", c.Name, "branch", branch)
 		return nil
 	}
 	taskID, err := ksid.Parse(labelVal)
 	if err != nil {
-		return fmt.Errorf("parse caic label %q on %s: %w", labelVal, e.Name, err)
+		return fmt.Errorf("parse caic label %q on %s: %w", labelVal, c.Name, err)
 	}
 
 	lt := task.LoadBranchLogs(s.logDir, branch)
@@ -589,18 +618,18 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	var stateUpdatedAt time.Time
 
 	// Check whether the relay daemon is alive in this container.
-	relayAlive, relayErr := agent.IsRelayRunning(ctx, e.Name)
+	relayAlive, relayErr := agent.IsRelayRunning(ctx, c.Name)
 	if relayErr != nil {
-		slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+		slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
 	}
 
 	var relayMsgs []agent.Message
 	var relaySize int64
 	if relayAlive {
 		// Relay is alive — read authoritative output from container.
-		relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, e.Name)
+		relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, c.Name)
 		if relayErr != nil {
-			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", e.Name, "err", relayErr)
+			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
 			relayAlive = false
 		}
 	}
@@ -619,7 +648,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		Prompt:         prompt,
 		Repo:           ri.RelPath,
 		Branch:         branch,
-		Container:      e.Name,
+		Container:      c.Name,
 		State:          task.StateRunning,
 		StateUpdatedAt: stateUpdatedAt,
 		StartedAt:      startedAt,
@@ -630,10 +659,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		// Claude Code stdout and user inputs (logged by the relay).
 		t.RestoreMessages(relayMsgs)
 		t.RelayOffset = relaySize
-		slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(relayMsgs))
+		slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", c.Name, "messages", len(relayMsgs))
 	} else if lt != nil && len(lt.Msgs) > 0 {
 		t.RestoreMessages(lt.Msgs)
-		slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(lt.Msgs))
+		slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", c.Name, "messages", len(lt.Msgs))
 	}
 	t.InitDoneCh()
 	entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -647,7 +676,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	s.taskChanged()
 	s.mu.Unlock()
 
-	slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", e.Name, "branch", branch, "relay", relayAlive)
+	slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", c.Name, "branch", branch, "relay", relayAlive)
 
 	// If relay is alive, auto-attach in background so messages
 	// resume streaming immediately.

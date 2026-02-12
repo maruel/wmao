@@ -18,8 +18,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/lmittmann/tint"
 	"github.com/maruel/caic/backend/internal/agent"
-	"github.com/maruel/caic/backend/internal/container"
 	"github.com/maruel/caic/backend/internal/server"
+	"github.com/maruel/caic/backend/internal/task"
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-isatty"
 )
@@ -204,10 +204,10 @@ func runGit(args ...string) error {
 	return nil
 }
 
-// fakeContainer implements container.Ops with no-op operations.
+// fakeContainer implements task.ContainerBackend with no-op operations.
 type fakeContainer struct{}
 
-var _ container.Ops = (*fakeContainer)(nil)
+var _ task.ContainerBackend = (*fakeContainer)(nil)
 
 func (*fakeContainer) Start(_ context.Context, _, branch string, _ []string) (string, error) {
 	return "md-test-" + strings.ReplaceAll(branch, "/", "-"), nil
@@ -217,10 +217,9 @@ func (*fakeContainer) Diff(_ context.Context, _, _ string, _ ...string) (string,
 	return "", nil
 }
 
-func (*fakeContainer) Pull(_ context.Context, _, _ string) error         { return nil }
-func (*fakeContainer) Push(_ context.Context, _, _ string) error         { return nil }
-func (*fakeContainer) Kill(_ context.Context, _, _ string) error         { return nil }
-func (*fakeContainer) List(_ context.Context) ([]container.Entry, error) { return nil, nil }
+func (*fakeContainer) Pull(_ context.Context, _, _ string) error { return nil }
+func (*fakeContainer) Push(_ context.Context, _, _ string) error { return nil }
+func (*fakeContainer) Kill(_ context.Context, _, _ string) error { return nil }
 
 // fakeAgentStart creates a Session backed by a shell process that emits three
 // JSON messages (init, assistant, result) then exits.

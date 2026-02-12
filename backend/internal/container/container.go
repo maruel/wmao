@@ -4,24 +4,21 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/maruel/md"
 )
 
-// Entry represents a container returned by listing.
-type Entry struct {
-	Name   string
-	Status string
-}
-
-// Ops abstracts md container lifecycle operations.
-type Ops interface {
-	Start(ctx context.Context, dir, branch string, labels []string) (name string, err error)
-	Diff(ctx context.Context, dir, branch string, args ...string) (string, error)
-	Pull(ctx context.Context, dir, branch string) error
-	Push(ctx context.Context, dir, branch string) error
-	Kill(ctx context.Context, dir, branch string) error
-	List(ctx context.Context) ([]Entry, error)
+// New creates an md.Client for container operations.
+func New(tag string) (*md.Client, error) {
+	c, err := md.New(tag)
+	if err != nil {
+		return nil, err
+	}
+	c.W = os.Stderr
+	return c, nil
 }
 
 // LabelValue returns the value of a Docker label on a running container.

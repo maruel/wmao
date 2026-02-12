@@ -2,13 +2,13 @@ package container
 
 import "testing"
 
-func TestNewLib(t *testing.T) {
-	lib, err := NewLib("")
+func TestNew(t *testing.T) {
+	c, err := New("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lib.Client == nil {
-		t.Fatal("NewLib returned Lib with nil Client")
+	if c == nil {
+		t.Fatal("New returned nil client")
 	}
 }
 
