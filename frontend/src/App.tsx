@@ -184,7 +184,7 @@ export default function App() {
       <div class={`${styles.titleRow} ${selectedId() ? styles.hidden : ""}`}>
         <h1 class={styles.title}>caic</h1>
         <span class={styles.subtitle}>Coding Agents in Containers</span>
-        <UsageBadges usage={usage} />
+        <UsageBadges usage={usage} now={now} />
       </div>
 
       <Show when={!connected()}>
@@ -253,7 +253,7 @@ export default function App() {
                   inputDraft={inputDrafts().get(id) ?? ""}
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
                 >
-                  <UsageBadges usage={usage} />
+                  <UsageBadges usage={usage} now={now} />
                 </TaskView>
               </div>
             )}

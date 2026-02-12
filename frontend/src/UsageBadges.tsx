@@ -1,9 +1,19 @@
 // Usage badges showing API utilization with color-coded thresholds.
 import { Show } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { ExtraUsage, UsageResp } from "@sdk/types.gen";
+import type { ExtraUsage, UsageResp, UsageWindow } from "@sdk/types.gen";
 import Tooltip from "./Tooltip";
 import styles from "./UsageBadges.module.css";
+
+/** Grace period (ms) after resetsAt before the frontend zeroes utilization. */
+const RESET_GRACE_MS = 60_000;
+
+/** Return 0 utilization if the reset timestamp has passed (plus grace). */
+function effectiveUtilization(w: UsageWindow, now: number): number {
+  const resetMs = new Date(w.resetsAt).getTime();
+  if (now > resetMs + RESET_GRACE_MS) return 0;
+  return w.utilization;
+}
 
 function formatReset(iso: string): string {
   const d = new Date(iso);
@@ -20,11 +30,11 @@ function formatReset(iso: string): string {
   return `in ${mins}m`;
 }
 
-function Badge(props: { label: string; utilization: number; resetsAt: string }) {
-  const pct = () => Math.round(props.utilization);
+function Badge(props: { label: string; window: UsageWindow; now: Accessor<number> }) {
+  const pct = () => Math.round(effectiveUtilization(props.window, props.now()));
   const cls = () => (pct() >= 80 ? styles.red : pct() >= 50 ? styles.yellow : styles.green);
   return (
-    <Tooltip text={`Resets ${formatReset(props.resetsAt)}`}>
+    <Tooltip text={`Resets ${formatReset(props.window.resetsAt)}`}>
       <span class={`${styles.badge} ${cls()}`}>
         {props.label}: {pct()}%
       </span>
@@ -51,16 +61,16 @@ function ExtraBadge(props: { extra: ExtraUsage }) {
   );
 }
 
-export default function UsageBadges(props: { usage: Accessor<UsageResp | null> }) {
+export default function UsageBadges(props: { usage: Accessor<UsageResp | null>; now: Accessor<number> }) {
   return (
     <Show when={props.usage()} keyed>
       {(u) => (
         <span class={styles.usageRow}>
           <Show when={u.fiveHour.resetsAt}>
-            <Badge label="5h" utilization={u.fiveHour.utilization} resetsAt={u.fiveHour.resetsAt} />
+            <Badge label="5h" window={u.fiveHour} now={props.now} />
           </Show>
           <Show when={u.sevenDay.resetsAt}>
-            <Badge label="Weekly" utilization={u.sevenDay.utilization} resetsAt={u.sevenDay.resetsAt} />
+            <Badge label="Weekly" window={u.sevenDay} now={props.now} />
           </Show>
           <ExtraBadge extra={u.extraUsage} />
         </span>
