@@ -1,5 +1,5 @@
 // Main application component for wmao web UI.
-import { createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
+import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON, UsageResp } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
@@ -68,6 +68,11 @@ export default function App() {
     const id = selectedId();
     return id !== null ? (tasks().find((t) => t.id === id) ?? null) : null;
   };
+
+  // Re-open sidebar when task view is closed while sidebar is collapsed.
+  createEffect(() => {
+    if (selectedId() === null) setSidebarOpen(true);
+  });
 
   onMount(async () => {
     requestNotificationPermission();

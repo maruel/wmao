@@ -31,7 +31,9 @@ export default function TaskList(props: TaskListProps) {
       <div class={`${styles.list} ${props.selectedId !== null ? styles.narrow : ""} ${props.sidebarOpen() ? "" : styles.hidden}`}>
         <div class={styles.header}>
           <h2>Tasks</h2>
-          <button class={styles.collapseBtn} onClick={() => props.setSidebarOpen(false)} title="Collapse sidebar"><LeftPanelClose width={20} height={20} /></button>
+          <Show when={props.selectedId !== null}>
+            <button class={styles.collapseBtn} onClick={() => props.setSidebarOpen(false)} title="Collapse sidebar"><LeftPanelClose width={20} height={20} /></button>
+          </Show>
         </div>
         <Show when={props.tasks().length === 0}>
           <p class={styles.placeholder}>No tasks yet.</p>
@@ -59,7 +61,7 @@ export default function TaskList(props: TaskListProps) {
           )}
         </Index>
       </div>
-      <Show when={!props.sidebarOpen()}>
+      <Show when={!props.sidebarOpen() && props.selectedId !== null}>
         <button class={styles.expandBtn} onClick={() => props.setSidebarOpen(true)} title="Expand sidebar"><LeftPanelOpen width={20} height={20} /></button>
       </Show>
     </>
