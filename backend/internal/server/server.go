@@ -54,7 +54,7 @@ type mdBackend struct{ client *md.Client }
 
 func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string) (string, error) {
 	c := b.client.Container(dir, branch)
-	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Labels: labels}); err != nil {
+	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, Labels: labels}); err != nil {
 		return "", err
 	}
 	return c.Name, nil
