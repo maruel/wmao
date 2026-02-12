@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maruel/ksid"
 	"github.com/maruel/caic/backend/internal/agent"
+	"github.com/maruel/ksid"
 )
 
 func TestOpenLog(t *testing.T) {

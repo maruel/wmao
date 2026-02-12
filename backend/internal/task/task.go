@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maruel/ksid"
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/container"
 	"github.com/maruel/caic/backend/internal/gitutil"
+	"github.com/maruel/ksid"
 )
 
 // State represents the lifecycle state of a task.

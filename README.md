@@ -2,11 +2,15 @@
 
 Coding Agents in Containers. Manage multiple coding agents.
 
-- Backend is in Go, frontend in SolidJS.
-- Expects [md](https://github.com/maruel/md) to be in `$PATH`.
-- Requires docker to be installed.
+Some people use IDEs. Some people use git-worktrees. Some people use Claude Code Web or Jules, or Cursor
+Cloud Agents. What if you want to develop safely in YOLO mode but you need a local high performance machine to
+run the tests? Enters ciac: manages local docker containers to run your agents locally. Access them from your
+phone with Tailscale. All private.
 
 ## Architecture
+
+- Backend is in Go, frontend in SolidJS.
+- Requires docker to be installed.
 
 Each task runs Claude Code inside an isolated
 [md](https://github.com/maruel/md) container. A Python relay process inside
