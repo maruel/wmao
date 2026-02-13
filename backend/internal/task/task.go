@@ -150,6 +150,12 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 			break
 		}
 	}
+	// Restore plan state from tool_use events.
+	for _, m := range msgs {
+		if am, ok := m.(*agent.AssistantMessage); ok {
+			t.trackPlanState(am)
+		}
+	}
 	// Restore live stats: cost/turns/duration are cumulative in the last
 	// ResultMessage, but usage (tokens) is per-query and must be summed.
 	for _, m := range msgs {
@@ -202,24 +208,7 @@ func (t *Task) addMessage(m agent.Message) {
 	}
 	// Track plan mode and plan file from tool_use events.
 	if am, ok := m.(*agent.AssistantMessage); ok {
-		for _, b := range am.Message.Content {
-			if b.Type != "tool_use" {
-				continue
-			}
-			switch b.Name {
-			case "EnterPlanMode":
-				t.InPlanMode = true
-			case "ExitPlanMode":
-				t.InPlanMode = false
-			case "Write":
-				var input struct {
-					FilePath string `json:"file_path"`
-				}
-				if json.Unmarshal(b.Input, &input) == nil && strings.Contains(input.FilePath, ".claude/plans/") {
-					t.PlanFile = input.FilePath
-				}
-			}
-		}
+		t.trackPlanState(am)
 	}
 	// Transition to waiting/asking when a result arrives while running.
 	if rm, ok := m.(*agent.ResultMessage); ok {
@@ -247,6 +236,29 @@ func (t *Task) addMessage(m agent.Message) {
 			close(t.subs[i])
 			t.subs = append(t.subs[:i], t.subs[i+1:]...)
 			i--
+		}
+	}
+}
+
+// trackPlanState inspects an AssistantMessage for plan-related tool_use blocks
+// and updates PlanFile and InPlanMode accordingly. The caller must hold t.mu.
+func (t *Task) trackPlanState(am *agent.AssistantMessage) {
+	for _, b := range am.Message.Content {
+		if b.Type != "tool_use" {
+			continue
+		}
+		switch b.Name {
+		case "EnterPlanMode":
+			t.InPlanMode = true
+		case "ExitPlanMode":
+			t.InPlanMode = false
+		case "Write":
+			var input struct {
+				FilePath string `json:"file_path"`
+			}
+			if json.Unmarshal(b.Input, &input) == nil && strings.Contains(input.FilePath, ".claude/plans/") {
+				t.PlanFile = input.FilePath
+			}
 		}
 	}
 }

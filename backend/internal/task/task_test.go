@@ -1,6 +1,7 @@
 package task
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -320,6 +321,61 @@ func TestTask(t *testing.T) {
 
 			if tk.SessionID != "new" {
 				t.Errorf("SessionID = %q, want %q", tk.SessionID, "new")
+			}
+		})
+		t.Run("RestoresPlanFile", func(t *testing.T) {
+			tk := &Task{Prompt: "test", State: StateRunning}
+			msgs := []agent.Message{
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/my-plan.md","content":"plan"}`)},
+						},
+					},
+				},
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			if tk.PlanFile != "/home/user/.claude/plans/my-plan.md" {
+				t.Errorf("PlanFile = %q, want %q", tk.PlanFile, "/home/user/.claude/plans/my-plan.md")
+			}
+		})
+		t.Run("RestoresInPlanMode", func(t *testing.T) {
+			tk := &Task{Prompt: "test", State: StateRunning}
+			msgs := []agent.Message{
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "EnterPlanMode"},
+						},
+					},
+				},
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/foo.md","content":"x"}`)},
+							{Type: "tool_use", Name: "ExitPlanMode"},
+						},
+					},
+				},
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			if tk.InPlanMode {
+				t.Error("InPlanMode = true, want false (ExitPlanMode should clear it)")
+			}
+			if tk.PlanFile != "/home/user/.claude/plans/foo.md" {
+				t.Errorf("PlanFile = %q, want %q", tk.PlanFile, "/home/user/.claude/plans/foo.md")
+			}
+
+			// Without ExitPlanMode, should stay in plan mode.
+			tk2 := &Task{Prompt: "test", State: StateRunning}
+			tk2.RestoreMessages(msgs[:1])
+			if !tk2.InPlanMode {
+				t.Error("InPlanMode = false, want true (only EnterPlanMode seen)")
 			}
 		})
 		t.Run("Subscribe", func(t *testing.T) {
