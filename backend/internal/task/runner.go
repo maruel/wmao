@@ -119,12 +119,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	prevState := t.State
 	t.mu.Unlock()
 
-	msgCh := make(chan agent.Message, 256)
-	go func() {
-		for m := range msgCh {
-			t.addMessage(m)
-		}
-	}()
+	msgCh := r.startMessageDispatch(ctx, t)
 
 	logW, err := r.openLog(t)
 	if err != nil {
@@ -185,7 +180,6 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	t.msgCh = msgCh
 	t.logW = logW
 	t.mu.Unlock()
-	t.SetOnResult(r.makeDiffStatFn(ctx, t))
 	return nil
 }
 
@@ -218,12 +212,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 
 	// 2. Start the agent session.
 	t.setState(StateStarting)
-	msgCh := make(chan agent.Message, 256)
-	go func() {
-		for m := range msgCh {
-			t.addMessage(m)
-		}
-	}()
+	msgCh := r.startMessageDispatch(ctx, t)
 	maxTurns := t.MaxTurns
 	if maxTurns == 0 {
 		maxTurns = r.MaxTurns
@@ -256,7 +245,6 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	t.logW = logW
 	t.mu.Unlock()
 
-	t.SetOnResult(r.makeDiffStatFn(ctx, t))
 	t.addMessage(syntheticUserInput(t.Prompt))
 	if err := session.Send(t.Prompt); err != nil {
 		_ = logW.Close()
@@ -470,12 +458,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 	t.setState(StateStarting)
 	t.mu.Unlock()
 
-	msgCh := make(chan agent.Message, 256)
-	go func() {
-		for m := range msgCh {
-			t.addMessage(m)
-		}
-	}()
+	msgCh := r.startMessageDispatch(ctx, t)
 
 	maxTurns := t.MaxTurns
 	if maxTurns == 0 {
@@ -503,7 +486,6 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 	t.logW = logW
 	t.mu.Unlock()
 
-	t.SetOnResult(r.makeDiffStatFn(ctx, t))
 	t.addMessage(syntheticUserInput(prompt))
 	if err := session.Send(prompt); err != nil {
 		_ = logW.Close()
@@ -536,17 +518,28 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 	return r.Container.Kill(ctx, r.Dir, branch)
 }
 
-// makeDiffStatFn returns a callback that runs Diff("--numstat") for the task's
-// branch. The returned function is safe to call from addMessage.
-func (r *Runner) makeDiffStatFn(ctx context.Context, t *Task) func() agent.DiffStat {
-	return func() agent.DiffStat {
-		if r.Container == nil {
-			return nil
+// startMessageDispatch starts a goroutine that reads from msgCh and dispatches
+// to t.addMessage. For ResultMessages, it fetches from the container first and
+// attaches the diff stat. Returns the channel for the caller to pass to the
+// agent backend.
+func (r *Runner) startMessageDispatch(ctx context.Context, t *Task) chan agent.Message {
+	msgCh := make(chan agent.Message, 256)
+	go func() {
+		for m := range msgCh {
+			if rm, ok := m.(*agent.ResultMessage); ok && r.Container != nil {
+				fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+				r.branchMu.Lock()
+				if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
+					slog.Warn("fetch on result failed", "branch", t.Branch, "err", err)
+				}
+				rm.DiffStat = r.diffStat(fetchCtx, t.Branch)
+				r.branchMu.Unlock()
+				fetchCancel()
+			}
+			t.addMessage(m)
 		}
-		diffCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		return r.diffStat(diffCtx, t.Branch)
-	}
+	}()
+	return msgCh
 }
 
 // diffStat runs Diff("--numstat") and parses the output.

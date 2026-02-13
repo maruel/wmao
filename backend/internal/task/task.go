@@ -98,10 +98,6 @@ type Task struct {
 	liveNumTurns   int
 	liveDurationMs int64
 	liveUsage      agent.Usage
-
-	// onResult is called when a ResultMessage arrives, before fan-out to
-	// subscribers. It returns the parsed diff stat. May be nil.
-	onResult func() agent.DiffStat
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -109,14 +105,6 @@ type Task struct {
 func (t *Task) setState(s State) {
 	t.State = s
 	t.StateUpdatedAt = time.Now().UTC()
-}
-
-// SetOnResult registers a callback invoked when a ResultMessage arrives.
-// The callback returns the parsed diff stat to attach to the message.
-func (t *Task) SetOnResult(fn func() agent.DiffStat) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onResult = fn
 }
 
 // LiveStats returns the latest cost, turn count, duration, and token usage
@@ -187,16 +175,6 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 }
 
 func (t *Task) addMessage(m agent.Message) {
-	// Run the onResult callback outside the lock to avoid holding it during I/O.
-	if rm, ok := m.(*agent.ResultMessage); ok {
-		t.mu.Lock()
-		fn := t.onResult
-		t.mu.Unlock()
-		if fn != nil {
-			rm.DiffStat = fn()
-		}
-	}
-
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)

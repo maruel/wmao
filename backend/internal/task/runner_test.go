@@ -187,6 +187,61 @@ func TestRunner(t *testing.T) {
 	})
 }
 
+// stubContainer implements ContainerBackend for testing. Diff returns a fixed
+// numstat line; Fetch records that it was called.
+type stubContainer struct {
+	fetched bool
+}
+
+func (s *stubContainer) Start(context.Context, string, string, []string) (string, error) {
+	return "stub", nil
+}
+
+func (s *stubContainer) Diff(_ context.Context, _, _ string, _ ...string) (string, error) {
+	return "5\t1\tmain.go\n", nil
+}
+
+func (s *stubContainer) Fetch(context.Context, string, string) error {
+	s.fetched = true
+	return nil
+}
+
+func (s *stubContainer) Kill(context.Context, string, string) error { return nil }
+
+func TestStartMessageDispatch(t *testing.T) {
+	stub := &stubContainer{}
+	r := &Runner{Container: stub}
+	r.initDefaults()
+
+	tk := &Task{Prompt: "test", State: StateRunning, Branch: "caic/w0"}
+	_, ch, unsub := tk.Subscribe(t.Context())
+	defer unsub()
+
+	msgCh := r.startMessageDispatch(t.Context(), tk)
+
+	rm := &agent.ResultMessage{MessageType: "result"}
+	msgCh <- rm
+	close(msgCh)
+
+	// Wait for the dispatched message.
+	timeout := time.After(time.Second)
+	select {
+	case got := <-ch:
+		rr, ok := got.(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("expected *agent.ResultMessage, got %T", got)
+		}
+		if len(rr.DiffStat) != 1 || rr.DiffStat[0].Path != "main.go" {
+			t.Errorf("DiffStat = %+v, want [{main.go 5 1}]", rr.DiffStat)
+		}
+	case <-timeout:
+		t.Fatal("timed out waiting for message")
+	}
+	if !stub.fetched {
+		t.Error("Fetch was not called on result message")
+	}
+}
+
 func TestRestartSession(t *testing.T) {
 	logDir := t.TempDir()
 	backend := &testBackend{}
