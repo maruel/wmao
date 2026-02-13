@@ -38,6 +38,7 @@ type TaskJSON struct {
 	ClaudeCodeVersion string `json:"claudeCodeVersion,omitempty"`
 	SessionID         string `json:"sessionID,omitempty"`
 	ContainerUptimeMs int64  `json:"containerUptimeMs,omitempty"`
+	InPlanMode        bool   `json:"inPlanMode,omitempty"`
 }
 
 // StatusResp is a common response for mutation endpoints.

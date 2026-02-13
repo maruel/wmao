@@ -273,6 +273,7 @@ export interface TaskJSON {
   claudeCodeVersion?: string;
   sessionID?: string;
   containerUptimeMs?: number /* int64 */;
+  inPlanMode?: boolean;
 }
 /**
  * StatusResp is a common response for mutation endpoints.

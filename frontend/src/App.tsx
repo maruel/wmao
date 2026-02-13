@@ -246,6 +246,7 @@ export default function App() {
                 <TaskView
                   taskId={id}
                   taskState={selectedTask()?.state ?? "pending"}
+                  inPlanMode={selectedTask()?.inPlanMode}
                   repo={selectedTask()?.repo ?? ""}
                   repoURL={selectedTask()?.repoURL}
                   branch={selectedTask()?.branch ?? ""}

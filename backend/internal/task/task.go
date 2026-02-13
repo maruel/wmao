@@ -80,6 +80,7 @@ type Task struct {
 	Model             string    // Model name, captured from SystemInitMessage.
 	ClaudeCodeVersion string    // Claude Code version, captured from SystemInitMessage.
 	PlanFile          string    // Path to plan file inside container, captured from Write tool_use.
+	InPlanMode        bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
 	StartedAt         time.Time
 	RelayOffset       int64 // Bytes received from relay output.jsonl, for reconnect.
 
@@ -199,10 +200,18 @@ func (t *Task) addMessage(m agent.Message) {
 		t.Model = init.Model
 		t.ClaudeCodeVersion = init.Version
 	}
-	// Capture plan file path from Write tool_use targeting .claude/plans/.
+	// Track plan mode and plan file from tool_use events.
 	if am, ok := m.(*agent.AssistantMessage); ok {
 		for _, b := range am.Message.Content {
-			if b.Type == "tool_use" && b.Name == "Write" {
+			if b.Type != "tool_use" {
+				continue
+			}
+			switch b.Name {
+			case "EnterPlanMode":
+				t.InPlanMode = true
+			case "ExitPlanMode":
+				t.InPlanMode = false
+			case "Write":
 				var input struct {
 					FilePath string `json:"file_path"`
 				}

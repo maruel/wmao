@@ -42,6 +42,21 @@
   line-height: 1.4;
 }
 
+.planBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 3px;
+  background: #ede9fe;
+  color: #7c3aed;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 .duration {
   font-size: 0.7rem;
   color: #888;

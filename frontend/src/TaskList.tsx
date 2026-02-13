@@ -55,6 +55,7 @@ export default function TaskList(props: TaskListProps) {
               inputTokens={t().inputTokens}
               containerUptimeMs={t().containerUptimeMs}
               error={t().error}
+              inPlanMode={t().inPlanMode}
               selected={props.selectedId === t().id}
               now={props.now}
               onClick={() => props.onSelect(t().id)}

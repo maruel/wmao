@@ -798,6 +798,7 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		Model:             e.task.Model,
 		ClaudeCodeVersion: e.task.ClaudeCodeVersion,
 		SessionID:         e.task.SessionID,
+		InPlanMode:        e.task.InPlanMode,
 	}
 	if !e.task.StartedAt.IsZero() {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()

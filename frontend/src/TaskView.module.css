@@ -265,6 +265,17 @@ a.headerRepo:hover {
   margin-top: 0.25rem;
 }
 
+.planIndicator {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  background: #ede9fe;
+  color: #7c3aed;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .planAction {
   margin-top: 0.5rem;
 }

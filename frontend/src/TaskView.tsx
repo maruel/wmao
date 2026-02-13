@@ -41,6 +41,7 @@ interface Turn {
 interface Props {
   taskId: string;
   taskState: string;
+  inPlanMode?: boolean;
   repo: string;
   repoURL?: string;
   branch: string;
@@ -151,6 +152,9 @@ export default function TaskView(props: Props) {
           </Show>
           <span class={styles.headerBranch}>{props.branch}</span>
         </span>
+        <Show when={props.inPlanMode}>
+          <span class={styles.planIndicator} title="Agent is in plan mode">Plan Mode</span>
+        </Show>
         {props.children}
       </div>
       <div class={styles.messageArea}>

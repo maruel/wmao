@@ -18,6 +18,7 @@ export interface TaskItemSummaryProps {
   inputTokens: number;
   containerUptimeMs?: number;
   error?: string;
+  inPlanMode?: boolean;
   selected: boolean;
   now: Accessor<number>;
   onClick: () => void;
@@ -32,6 +33,9 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
       <div class={styles.header}>
         <strong class={styles.title}>{props.task}</strong>
         <span class={styles.stateGroup}>
+          <Show when={props.inPlanMode}>
+            <span class={styles.planBadge} title="Plan mode">P</span>
+          </Show>
           <span class={styles.badge} style={{ background: stateColor(props.state) }}>
             {props.state}
           </span>
