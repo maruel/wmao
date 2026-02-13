@@ -580,8 +580,17 @@ a.headerRepo:hover {
 
 /* Mobile: <=768px */
 @media (max-width: 768px) {
+  .container {
+    margin: 0 -0.5rem;
+  }
+
   .inputForm {
     flex-wrap: wrap;
+    padding: 0 0.5rem;
+  }
+
+  .header {
+    padding: 0 0.5rem;
   }
 
   .textInput {
@@ -593,6 +602,9 @@ a.headerRepo:hover {
 
   .messageArea {
     min-height: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 
   .toolBlockPre {
