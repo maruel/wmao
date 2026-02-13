@@ -31,6 +31,7 @@ type ContentBlock struct {
 
 var contentBlockKnown = makeSet("type", "text", "thinking", "signature", "id", "name", "input", "tool_use_id", "content")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 	type Alias ContentBlock
 	var raw map[string]json.RawMessage
@@ -65,6 +66,7 @@ type Usage struct {
 
 var usageKnown = makeSet("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "service_tier", "inference_geo", "iterations", "server_tool_use", "cache_creation")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (u *Usage) UnmarshalJSON(data []byte) error {
 	type Alias Usage
 	var raw map[string]json.RawMessage
@@ -90,6 +92,7 @@ type ServerToolUse struct {
 
 var serverToolUseKnown = makeSet("web_search_requests", "web_fetch_requests")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (s *ServerToolUse) UnmarshalJSON(data []byte) error {
 	type Alias ServerToolUse
 	var raw map[string]json.RawMessage
@@ -115,6 +118,7 @@ type CacheCreation struct {
 
 var cacheCreationKnown = makeSet("ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (c *CacheCreation) UnmarshalJSON(data []byte) error {
 	type Alias CacheCreation
 	var raw map[string]json.RawMessage
@@ -148,6 +152,7 @@ type APIMessage struct {
 
 var apiMessageKnown = makeSet("id", "type", "model", "role", "content", "stop_reason", "stop_sequence", "usage", "container", "context_management")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (m *APIMessage) UnmarshalJSON(data []byte) error {
 	type Alias APIMessage
 	var raw map[string]json.RawMessage
@@ -174,6 +179,7 @@ type UserMessage struct {
 
 var userMessageKnown = makeSet("role", "content")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (m *UserMessage) UnmarshalJSON(data []byte) error {
 	type Alias UserMessage
 	var raw map[string]json.RawMessage
@@ -220,6 +226,7 @@ type Todo struct {
 
 var todoKnown = makeSet("content", "status", "activeForm")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (t *Todo) UnmarshalJSON(data []byte) error {
 	type Alias Todo
 	var raw map[string]json.RawMessage
@@ -247,6 +254,7 @@ type ThinkingMetadata struct {
 
 var thinkingMetadataKnown = makeSet("maxThinkingTokens", "disabled", "level", "triggers")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (t *ThinkingMetadata) UnmarshalJSON(data []byte) error {
 	type Alias ThinkingMetadata
 	var raw map[string]json.RawMessage
@@ -278,6 +286,7 @@ type ToolUseResult struct {
 
 var toolUseResultKnown = makeSet("status", "prompt", "agentId", "content", "totalDurationMs", "totalTokens", "totalToolUseCount", "usage")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (t *ToolUseResult) UnmarshalJSON(data []byte) error {
 	type Alias ToolUseResult
 	var raw map[string]json.RawMessage

@@ -20,6 +20,7 @@ var progressRecordKnown = makeSet(append(messageRecordFields,
 	"data", "parentToolUseID", "toolUseID",
 )...)
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (p *ProgressRecord) UnmarshalJSON(data []byte) error {
 	type Alias ProgressRecord
 	var raw map[string]json.RawMessage
@@ -89,6 +90,7 @@ var progressPayloadKnown = makeSet(
 	"taskDescription", "taskType",
 )
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (p *ProgressPayload) UnmarshalJSON(data []byte) error {
 	type Alias ProgressPayload
 	var raw map[string]json.RawMessage

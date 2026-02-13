@@ -25,6 +25,7 @@ type Record struct {
 	raw json.RawMessage
 }
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (r *Record) UnmarshalJSON(data []byte) error {
 	var probe struct {
 		Type string `json:"type"`
@@ -116,6 +117,7 @@ type QueueOperation struct {
 
 var queueOperationKnown = makeSet("type", "operation", "timestamp", "sessionId", "content")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (q *QueueOperation) UnmarshalJSON(data []byte) error {
 	type Alias QueueOperation
 	var raw map[string]json.RawMessage
@@ -180,6 +182,7 @@ var userRecordKnown = makeSet(append(messageRecordFields,
 	"sourceToolUseID",
 )...)
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (u *UserRecord) UnmarshalJSON(data []byte) error {
 	type Alias UserRecord
 	var raw map[string]json.RawMessage
@@ -237,6 +240,7 @@ var assistantRecordKnown = makeSet(append(messageRecordFields,
 	"message", "requestId", "error", "isApiErrorMessage",
 )...)
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (a *AssistantRecord) UnmarshalJSON(data []byte) error {
 	type Alias AssistantRecord
 	var raw map[string]json.RawMessage
@@ -287,6 +291,7 @@ var systemRecordKnown = makeSet(append(messageRecordFields,
 	"preventedContinuation", "stopReason", "toolUseID",
 )...)
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (s *SystemRecord) UnmarshalJSON(data []byte) error {
 	type Alias SystemRecord
 	var raw map[string]json.RawMessage
@@ -312,6 +317,7 @@ type CompactMetadata struct {
 
 var compactMetadataKnown = makeSet("trigger", "preTokens")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (c *CompactMetadata) UnmarshalJSON(data []byte) error {
 	type Alias CompactMetadata
 	var raw map[string]json.RawMessage
@@ -338,6 +344,7 @@ type SummaryRecord struct {
 
 var summaryRecordKnown = makeSet("type", "summary", "leafUuid")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (s *SummaryRecord) UnmarshalJSON(data []byte) error {
 	type Alias SummaryRecord
 	var raw map[string]json.RawMessage
@@ -365,6 +372,7 @@ type FileHistorySnapshotRecord struct {
 
 var fileHistorySnapshotKnown = makeSet("type", "messageId", "snapshot", "isSnapshotUpdate")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (f *FileHistorySnapshotRecord) UnmarshalJSON(data []byte) error {
 	type Alias FileHistorySnapshotRecord
 	var raw map[string]json.RawMessage
@@ -391,6 +399,7 @@ type Snapshot struct {
 
 var snapshotKnown = makeSet("messageId", "trackedFileBackups", "timestamp")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (s *Snapshot) UnmarshalJSON(data []byte) error {
 	type Alias Snapshot
 	var raw map[string]json.RawMessage
@@ -417,6 +426,7 @@ type FileBackup struct {
 
 var fileBackupKnown = makeSet("backupFileName", "version", "backupTime")
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (f *FileBackup) UnmarshalJSON(data []byte) error {
 	type Alias FileBackup
 	var raw map[string]json.RawMessage
