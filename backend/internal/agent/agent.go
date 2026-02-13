@@ -26,16 +26,24 @@ type Options struct {
 	ResumeSessionID string
 }
 
-// WriteFn writes a user prompt to an agent's stdin in the backend's wire
-// format. logW receives a copy of the written bytes (may be nil).
-type WriteFn func(w io.Writer, prompt string, logW io.Writer) error
+// WireFormat defines the wire protocol for a backend's stdin/stdout
+// communication. Implementations must pair WritePrompt and ParseMessage
+// for the same protocol.
+type WireFormat interface {
+	// WritePrompt writes a user prompt to the agent's stdin in the
+	// backend's wire format. logW receives a copy (may be nil).
+	WritePrompt(w io.Writer, prompt string, logW io.Writer) error
+
+	// ParseMessage decodes a single NDJSON line into a typed Message.
+	ParseMessage(line []byte) (Message, error)
+}
 
 // Session manages a running agent process.
 type Session struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	logW      io.Writer
-	writeFn   WriteFn
+	wire      WireFormat
 	mu        sync.Mutex // serializes stdin writes
 	closeOnce sync.Once
 	done      chan struct{} // closed when readMessages goroutine exits
@@ -45,19 +53,19 @@ type Session struct {
 
 // NewSession creates a Session from an already-started command. Messages read
 // from stdout are parsed and sent to msgCh. logW receives raw NDJSON lines
-// (may be nil). writeFn defines the wire format for sending prompts.
-func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, writeFn WriteFn) *Session {
+// (may be nil). wire defines the backend's wire protocol.
+func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, wire WireFormat) *Session {
 	s := &Session{
-		cmd:     cmd,
-		stdin:   stdin,
-		logW:    logW,
-		writeFn: writeFn,
-		done:    make(chan struct{}),
+		cmd:   cmd,
+		stdin: stdin,
+		logW:  logW,
+		wire:  wire,
+		done:  make(chan struct{}),
 	}
 
 	go func() {
 		defer close(s.done)
-		result, parseErr := readMessages(stdout, msgCh, logW)
+		result, parseErr := readMessages(stdout, msgCh, logW, wire.ParseMessage)
 		waitErr := cmd.Wait()
 		// Store the result and first non-nil error.
 		s.result = result
@@ -81,7 +89,7 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 func (s *Session) Send(prompt string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.writeFn(s.stdin, prompt, s.logW)
+	return s.wire.WritePrompt(s.stdin, prompt, s.logW)
 }
 
 // Close closes stdin so the agent process can exit. Idempotent.
@@ -104,7 +112,7 @@ func (s *Session) Wait() (*ResultMessage, error) {
 
 // readMessages reads NDJSON lines from r, dispatches to msgCh, and returns
 // the terminal ResultMessage. If logW is non-nil, each raw line is written to it.
-func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
+func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn func([]byte) (Message, error)) (*ResultMessage, error) {
 	scanner := bufio.NewScanner(r)
 	// Agents can produce long lines (e.g., base64 images in tool results).
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
@@ -119,7 +127,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer) (*ResultMes
 			_, _ = logW.Write(line)
 			_, _ = logW.Write([]byte{'\n'})
 		}
-		msg, err := ParseMessage(line)
+		msg, err := parseFn(line)
 		if err != nil {
 			slog.Warn("skipping unparseable message", "err", err, "line", string(line))
 			continue

@@ -1,5 +1,5 @@
-// Package claude implements agent.Backend for Claude Code.
-package claude
+// Package gemini implements agent.Backend for Gemini CLI.
+package gemini
 
 import (
 	"bufio"
@@ -15,30 +15,29 @@ import (
 	"github.com/maruel/caic/backend/internal/agent"
 )
 
-// Backend implements agent.Backend for Claude Code.
+// Backend implements agent.Backend for Gemini CLI.
 type Backend struct{}
 
 var _ agent.Backend = (*Backend)(nil)
 
-// Wire is the wire format for Claude Code (stream-json over stdin/stdout).
+// Wire is the wire format for Gemini CLI (stream-json over stdin/stdout).
 var Wire agent.WireFormat = &Backend{}
 
 // Harness returns the harness identifier.
-func (b *Backend) Harness() agent.Harness { return agent.Claude }
+func (b *Backend) Harness() agent.Harness { return agent.Gemini }
 
-// Start launches a Claude Code process via the relay daemon in the given
-// container. It deploys the relay script and starts claude via serve-attach.
+// Start launches a Gemini CLI process via the relay daemon in the given
+// container.
 func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	if err := agent.DeployRelay(ctx, opts.Container); err != nil {
 		return nil, err
 	}
 
-	claudeArgs := buildArgs(opts)
+	geminiArgs := buildArgs(opts)
 
-	// Build the ssh command: ssh <container> python3 relay.py serve-attach -- claude ...
-	sshArgs := make([]string, 0, 5+len(claudeArgs))
+	sshArgs := make([]string, 0, 5+len(geminiArgs))
 	sshArgs = append(sshArgs, opts.Container, "python3", agent.RelayScriptPath, "serve-attach", "--")
-	sshArgs = append(sshArgs, claudeArgs...)
+	sshArgs = append(sshArgs, geminiArgs...)
 
 	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
 	stdin, err := cmd.StdinPipe()
@@ -106,56 +105,38 @@ func (b *Backend) ReadRelayOutput(ctx context.Context, container string) (msgs [
 	return msgs, size, scanner.Err()
 }
 
-// ParseMessage decodes a single Claude Code NDJSON line into a typed Message.
+// ParseMessage decodes a single Gemini CLI stream-json line into a typed Message.
 func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
-	return agent.ParseMessage(line)
+	return ParseMessage(line)
 }
 
-// userInputMessage is the NDJSON message sent to Claude Code via stdin.
-type userInputMessage struct {
-	Type    string           `json:"type"`
-	Message userInputContent `json:"message"`
-}
-
-type userInputContent struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// WritePrompt writes a single user message in Claude Code's stdin format.
+// WritePrompt writes a single user message to Gemini CLI's stdin.
+// Gemini CLI in -p mode reads plain text lines from stdin.
 func (*Backend) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
-	msg := userInputMessage{
-		Type:    "user",
-		Message: userInputContent{Role: "user", Content: prompt},
-	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
+	data := []byte(prompt + "\n")
 	if _, err := w.Write(data); err != nil {
 		return err
 	}
 	if logW != nil {
-		_, _ = logW.Write(data)
+		// Log as NDJSON for consistency with our log format.
+		entry, _ := json.Marshal(map[string]string{
+			"type":    "user_input",
+			"content": prompt,
+		})
+		_, _ = logW.Write(append(entry, '\n'))
 	}
 	return nil
 }
 
-// buildArgs constructs the Claude Code CLI arguments.
+// buildArgs constructs the Gemini CLI arguments.
 func buildArgs(opts agent.Options) []string {
 	args := []string{
-		"claude", "-p",
-		"--input-format", "stream-json",
+		"gemini", "-p",
 		"--output-format", "stream-json",
-		"--verbose",
-		"--dangerously-skip-permissions",
-	}
-	if opts.MaxTurns > 0 {
-		args = append(args, "--max-turns", strconv.Itoa(opts.MaxTurns))
+		"--yolo",
 	}
 	if opts.Model != "" {
-		args = append(args, "--model", opts.Model)
+		args = append(args, "-m", opts.Model)
 	}
 	if opts.ResumeSessionID != "" {
 		args = append(args, "--resume", opts.ResumeSessionID)

@@ -9,8 +9,10 @@ import (
 	"time"
 )
 
-// testWriteFn is a simple WriteFn for testing that writes JSON user messages.
-func testWriteFn(w io.Writer, prompt string, logW io.Writer) error {
+// testWire implements WireFormat for testing.
+type testWire struct{}
+
+func (testWire) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
 	msg := struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -34,16 +36,19 @@ func testWriteFn(w io.Writer, prompt string, logW io.Writer) error {
 	return nil
 }
 
+func (testWire) ParseMessage(line []byte) (Message, error) {
+	return ParseMessage(line)
+}
+
 func TestSessionLifecycle(t *testing.T) {
 	// Simulate a session using pipes instead of a real process.
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 
 	s := &Session{
-		stdin:   stdinW,
-		logW:    nil,
-		writeFn: testWriteFn,
-		done:    make(chan struct{}),
+		stdin: stdinW,
+		wire:  testWire{},
+		done:  make(chan struct{}),
 	}
 
 	msgCh := make(chan Message, 16)
@@ -51,7 +56,7 @@ func TestSessionLifecycle(t *testing.T) {
 	// Simulate the readMessages goroutine.
 	go func() {
 		defer close(s.done)
-		result, parseErr := readMessages(stdoutR, msgCh, nil)
+		result, parseErr := readMessages(stdoutR, msgCh, nil, ParseMessage)
 		s.result = result
 		if parseErr != nil {
 			s.err = parseErr
@@ -131,9 +136,9 @@ func TestSessionLifecycle(t *testing.T) {
 func TestSessionClose(t *testing.T) {
 	_, stdinW := io.Pipe()
 	s := &Session{
-		stdin:   stdinW,
-		writeFn: testWriteFn,
-		done:    make(chan struct{}),
+		stdin: stdinW,
+		wire:  testWire{},
+		done:  make(chan struct{}),
 	}
 	// Close should be idempotent.
 	s.Close()
@@ -219,7 +224,7 @@ func TestReadMessages(t *testing.T) {
 		input := strings.Join(lines, "\n")
 
 		ch := make(chan Message, 16)
-		result, err := readMessages(strings.NewReader(input), ch, nil)
+		result, err := readMessages(strings.NewReader(input), ch, nil, ParseMessage)
 		close(ch)
 		if err != nil {
 			t.Fatal(err)
@@ -247,7 +252,7 @@ func TestReadMessages(t *testing.T) {
 		input := strings.Join(lines, "\n")
 
 		var buf bytes.Buffer
-		result, err := readMessages(strings.NewReader(input), nil, &buf)
+		result, err := readMessages(strings.NewReader(input), nil, &buf, ParseMessage)
 		if err != nil {
 			t.Fatal(err)
 		}
