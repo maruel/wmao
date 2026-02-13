@@ -85,10 +85,11 @@ a.headerRepo:hover {
 
 .textInput {
   flex: 1;
-  padding: 0.25rem 0.4rem;
+  padding: 0.4rem;
   resize: none;
   font: inherit;
-  line-height: 1.4;
+  font-size: 0.9rem;
+  line-height: 1.2;
   max-height: 10rem;
   overflow-y: auto;
 }

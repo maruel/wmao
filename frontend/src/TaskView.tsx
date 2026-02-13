@@ -6,6 +6,7 @@ import AutoResizeTextarea from "./AutoResizeTextarea";
 import Button from "./Button";
 import TodoPanel from "./TodoPanel";
 import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
+import DeleteIcon from "@material-symbols/svg-400/outlined/delete.svg?solid";
 import styles from "./TaskView.module.css";
 
 // Module-level store for <details> open/closed state so it survives
@@ -266,7 +267,7 @@ export default function TaskView(props: Props) {
           <Button type="submit" disabled={sending() || !props.inputDraft.trim()}>Send</Button>
           <Button type="button" variant="gray" loading={pendingAction() === "pull"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("pull", () => apiPullTask(id)); }}>Pull</Button>
           <Button type="button" variant="gray" loading={pendingAction() === "push"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("push", () => apiPushTask(id)); }}>Push</Button>
-          <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }}>Terminate</Button>
+          <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate"><DeleteIcon width="1.1em" height="1.1em" /></Button>
         </form>
         <Show when={actionError()}>
           <div class={styles.actionError}>{actionError()}</div>
