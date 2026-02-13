@@ -182,14 +182,6 @@ func TestHandleTerminateWaiting(t *testing.T) {
 		done: make(chan struct{}),
 	}
 
-	// Simulate the Kill goroutine that runs in production.
-	runner := &task.Runner{Dir: t.TempDir(), BaseBranch: "main"}
-	done := s.tasks["t1"].done
-	go func() {
-		defer close(done)
-		runner.Kill(t.Context(), tk)
-	}()
-
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/terminate", http.NoBody)
 	req.SetPathValue("id", "t1")
 	w := httptest.NewRecorder()
@@ -203,6 +195,29 @@ func TestHandleTerminateWaiting(t *testing.T) {
 	case <-tk.Done():
 	default:
 		t.Error("doneCh not closed after terminate")
+	}
+}
+
+func TestHandleTerminateCancelledContext(t *testing.T) {
+	tk := &task.Task{Prompt: "test", State: task.StateRunning}
+	tk.InitDoneCh()
+	s := newTestServer(t)
+	s.tasks["t1"] = &taskEntry{
+		task: tk,
+		done: make(chan struct{}),
+	}
+
+	// Use an already-cancelled context to simulate shutdown scenario
+	// where BaseContext is cancelled before the handler completes.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/terminate", http.NoBody)
+	req = req.WithContext(ctx)
+	req.SetPathValue("id", "t1")
+	w := httptest.NewRecorder()
+	handleWithTask(s, s.terminateTask)(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 

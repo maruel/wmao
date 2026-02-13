@@ -457,7 +457,7 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *dto.Resta
 	return &dto.StatusResp{Status: "restarted"}, nil
 }
 
-func (s *Server) terminateTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
+func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
 	state := entry.task.State
 	if state != task.StateWaiting && state != task.StateAsking && state != task.StateRunning {
 		return nil, dto.Conflict("task is not running or waiting")
@@ -466,12 +466,12 @@ func (s *Server) terminateTask(ctx context.Context, entry *taskEntry, _ *dto.Emp
 	s.mu.Lock()
 	s.taskChanged()
 	s.mu.Unlock()
-	select {
-	case <-entry.done:
-	case <-ctx.Done():
-		return nil, dto.InternalError("timeout waiting for termination")
-	}
-	return &dto.StatusResp{Status: "terminated"}, nil
+	// Don't block on entry.done: the Kill goroutine may take 10+ seconds
+	// (agent graceful shutdown + container kill). The request context is
+	// derived from the server's BaseContext, which is already cancelled
+	// during graceful shutdown—making the wait always fail. The client
+	// observes the final state transition via SSE.
+	return &dto.StatusResp{Status: "terminating"}, nil
 }
 
 func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncReq) (*dto.SyncResp, error) {
