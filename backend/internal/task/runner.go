@@ -86,6 +86,12 @@ func (r *Runner) backend(name agent.Harness) agent.Backend {
 	return r.Backends[name]
 }
 
+// containerDir returns the working directory path inside an md container.
+// md always mounts repos at /home/user/<basename>.
+func (r *Runner) containerDir() string {
+	return "/home/user/" + filepath.Base(r.Dir)
+}
+
 // Init sets nextID past any existing caic/w* branches so that restarts don't
 // waste attempts on branches that already exist.
 func (r *Runner) Init(ctx context.Context) error {
@@ -165,7 +171,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		}
 		session, err = r.backend(t.Harness).Start(ctx, agent.Options{
 			Container:       t.Container,
-			Dir:             r.Dir,
+			Dir:             r.containerDir(),
 			MaxTurns:        maxTurns,
 			Model:           t.Model,
 			ResumeSessionID: t.SessionID,
@@ -232,7 +238,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "agent", t.Harness, "maxTurns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
 		Container: name,
-		Dir:       r.Dir,
+		Dir:       r.containerDir(),
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
 	}, msgCh, logW)
@@ -473,7 +479,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
 		Container: t.Container,
-		Dir:       r.Dir,
+		Dir:       r.containerDir(),
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
 	}, msgCh, logW)

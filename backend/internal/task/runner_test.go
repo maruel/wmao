@@ -193,6 +193,24 @@ func TestRunner(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("ContainerDir", func(t *testing.T) {
+		tests := []struct {
+			dir  string
+			want string
+		}{
+			{"/home/maruel/src/caic", "/home/user/caic"},
+			{"/home/alice/projects/myrepo", "/home/user/myrepo"},
+			{"/opt/repos/foo", "/home/user/foo"},
+		}
+		for _, tc := range tests {
+			r := &Runner{Dir: tc.dir}
+			got := r.containerDir()
+			if got != tc.want {
+				t.Errorf("containerDir(%q) = %q, want %q", tc.dir, got, tc.want)
+			}
+		}
+	})
 }
 
 // stubContainer implements ContainerBackend for testing. Diff returns a fixed
