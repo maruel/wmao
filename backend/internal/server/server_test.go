@@ -580,8 +580,8 @@ func TestLoadTerminatedTasksCostInJSON(t *testing.T) {
 		if j.Model != "claude-opus-4-6" {
 			t.Errorf("Model = %q, want %q", j.Model, "claude-opus-4-6")
 		}
-		if j.ClaudeCodeVersion != "2.0" {
-			t.Errorf("ClaudeCodeVersion = %q, want %q", j.ClaudeCodeVersion, "2.0")
+		if j.AgentVersion != "2.0" {
+			t.Errorf("AgentVersion = %q, want %q", j.AgentVersion, "2.0")
 		}
 	}
 }

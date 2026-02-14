@@ -1,8 +1,8 @@
 // Main application component for caic web UI.
 import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { RepoJSON, TaskJSON, UsageResp } from "@sdk/types.gen";
-import { listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
+import type { HarnessJSON, RepoJSON, TaskJSON, UsageResp } from "@sdk/types.gen";
+import { listHarnesses, listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
 import TaskView from "./TaskView";
 import TaskList from "./TaskList";
 import AutoResizeTextarea from "./AutoResizeTextarea";
@@ -49,6 +49,8 @@ export default function App() {
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [selectedModel, setSelectedModel] = createSignal("");
+  const [harnesses, setHarnesses] = createSignal<HarnessJSON[]>([]);
+  const [selectedHarness, setSelectedHarness] = createSignal("claude");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [usage, setUsage] = createSignal<UsageResp | null>(null);
 
@@ -93,6 +95,7 @@ export default function App() {
       const match = last && data.find((r) => r.path === last);
       setSelectedRepo(match ? match.path : data[0].path);
     }
+    listHarnesses().then(setHarnesses).catch(() => {});
     getUsage().then(setUsage).catch(() => {});
   });
 
@@ -171,7 +174,7 @@ export default function App() {
     localStorage.setItem("caic:lastRepo", repo);
     try {
       const model = selectedModel();
-      const data = await createTask({ prompt: p, repo, harness: "claude", ...(model ? { model } : {}) });
+      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}) });
       setPrompt("");
       navigate(taskPath(data.id, repo, "", p));
     } finally {
@@ -202,6 +205,18 @@ export default function App() {
             {(r) => <option value={r.path}>{r.path}</option>}
           </For>
         </select>
+        <Show when={harnesses().length > 1}>
+          <select
+            value={selectedHarness()}
+            onChange={(e) => setSelectedHarness(e.currentTarget.value)}
+            disabled={submitting()}
+            class={styles.modelSelect}
+          >
+            <For each={harnesses()}>
+              {(h) => <option value={h.name}>{h.name}</option>}
+            </For>
+          </select>
+        </Show>
         <select
           value={selectedModel()}
           onChange={(e) => setSelectedModel(e.currentTarget.value)}

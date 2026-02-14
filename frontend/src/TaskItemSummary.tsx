@@ -13,7 +13,7 @@ export interface TaskItemSummaryProps {
   branch: string;
   harness?: string;
   model?: string;
-  claudeCodeVersion?: string;
+  agentVersion?: string;
   costUSD: number;
   durationMs: number;
   numTurns: number;
@@ -59,10 +59,10 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
           </Show>
         </div>
       </Show>
-      <Show when={props.harness || props.claudeCodeVersion || props.model}>
+      <Show when={props.harness || props.agentVersion || props.model}>
         <div class={styles.metaRow}>
           <span class={styles.meta}>
-            {props.harness && props.harness !== "claude" ? props.harness + " · " : ""}{props.claudeCodeVersion}{props.claudeCodeVersion && props.model ? " · " : ""}{props.model}
+            {props.harness && props.harness !== "claude" ? props.harness + " · " : ""}{props.agentVersion}{props.agentVersion && props.model ? " · " : ""}{props.model}
             <Show when={props.inputTokens + props.cacheCreationInputTokens + props.cacheReadInputTokens > 0}>
               {" · "}
               <Tooltip text={`${formatTokens(props.inputTokens)} in, ${formatTokens(props.outputTokens)} out, ${formatTokens(props.cacheCreationInputTokens)} cache write, ${formatTokens(props.cacheReadInputTokens)} cache read`}>

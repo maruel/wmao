@@ -34,11 +34,11 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 				Kind: dto.EventKindInit,
 				Ts:   ts,
 				Init: &dto.EventInit{
-					Model:             m.Model,
-					ClaudeCodeVersion: m.Version,
-					SessionID:         m.SessionID,
-					Tools:             m.Tools,
-					Cwd:               m.Cwd,
+					Model:        m.Model,
+					AgentVersion: m.Version,
+					SessionID:    m.SessionID,
+					Tools:        m.Tools,
+					Cwd:          m.Cwd,
 				},
 			}}
 		}

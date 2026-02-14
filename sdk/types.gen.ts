@@ -127,7 +127,7 @@ export interface EventMessage {
  */
 export interface EventInit {
   model: string;
-  claudeCodeVersion: string;
+  agentVersion: string;
   sessionID: string;
   tools: string[];
   cwd: string;
@@ -250,6 +250,12 @@ export const HarnessClaude: Harness = "claude";
  */
 export const HarnessGemini: Harness = "gemini";
 /**
+ * HarnessJSON is the JSON representation of an available harness.
+ */
+export interface HarnessJSON {
+  name: string;
+}
+/**
  * RepoJSON is the JSON representation of a discovered repo.
  */
 export interface RepoJSON {
@@ -284,7 +290,7 @@ export interface TaskJSON {
    */
   harness: Harness;
   model?: string;
-  claudeCodeVersion?: string;
+  agentVersion?: string;
   sessionID?: string;
   containerUptimeMs?: number /* int64 */;
   inPlanMode?: boolean;

@@ -40,11 +40,11 @@ type EventMessage struct {
 
 // EventInit is emitted once at the start of a session.
 type EventInit struct {
-	Model             string   `json:"model"`
-	ClaudeCodeVersion string   `json:"claudeCodeVersion"`
-	SessionID         string   `json:"sessionID"`
-	Tools             []string `json:"tools"`
-	Cwd               string   `json:"cwd"`
+	Model        string   `json:"model"`
+	AgentVersion string   `json:"agentVersion"`
+	SessionID    string   `json:"sessionID"`
+	Tools        []string `json:"tools"`
+	Cwd          string   `json:"cwd"`
 }
 
 // EventText is an assistant text block.

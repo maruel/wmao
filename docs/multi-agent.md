@@ -84,64 +84,43 @@ server/dto/
 4. **Result/stats schema differs** — Gemini reports `stats.models`/`stats.tools` vs Claude's `ResultMessage` with `total_cost_usd`/`usage`
 5. **Session management** — Gemini stores sessions in `~/.gemini/tmp/`, Claude in its own location. Both support `--resume`.
 
-## Remaining Implementation Steps
+## Completed: Gemini Backend (Step 3)
 
-### 3. Implement Gemini backend — `agent/gemini/`
+The Gemini CLI backend is implemented in `agent/gemini/`:
 
-Create `agent/gemini/gemini.go` implementing `agent.Backend`:
-- `Start`: launches `gemini -p --output-format stream-json --yolo [-m model]`
-- `WritePrompt`: Gemini's stdin format (needs empirical capture — may differ from Claude's)
-- `ParseMessage`: translates Gemini stream-json events → `agent.Message`
-- Tool name mapping: `read_file`→`Read`, `run_shell_command`→`Bash`, etc.
-- Register in `runner.initDefaults` as `{"gemini": &gemini.Backend{}}` alongside claude
+- **`gemini.go`** — `Backend` impl: `Start`, `AttachRelay`, `ReadRelayOutput`, `ParseMessage`, `WritePrompt`, `Harness() → "gemini"`. Launches via `gemini -p --output-format stream-json --yolo`.
+- **`record.go`** — Typed records for Gemini's stream-json NDJSON: `InitRecord`, `MessageRecord`, `ToolUseRecord`, `ToolResultRecord`, `ResultRecord`. All embed `Overflow` for forward compatibility (unknown fields logged as warnings).
+- **`parse.go`** — `ParseMessage` translates Gemini records → `agent.Message`. Tool name mapping (`read_file`→`Read`, `run_shell_command`→`Bash`, etc.).
+- **`unknown.go`** — `Overflow` type and helpers for forward-compatible JSON parsing.
+- **`parse_test.go`** / **`record_test.go`** — Full test coverage for parsing and record types.
+- **`task/load.go`** — `parseFnForHarness()` dispatches to `agentgemini.ParseMessage` for Gemini logs.
+- **`task/runner.go`** — `initDefaults` registers both `claude` and `gemini` backends.
 
-| Gemini stream-json event | Normalized agent.Message |
-|---|---|
-| Session start / model info | `SystemInitMessage` (populate Model, tools list) |
-| Text output | `AssistantMessage` with `ContentBlock{Type:"text"}` |
-| Tool call (e.g. `read_file`) | `AssistantMessage` with `ContentBlock{Type:"tool_use", Name:"Read"}` |
-| Tool result | `UserMessage` with `ParentToolUseID` |
-| Final stats / completion | `ResultMessage` (map costs/tokens/turns) |
+## Completed: Frontend Harness Selector (Step 4)
 
-Tool name mapping table:
-| Gemini | Normalized (Claude names) |
-|---|---|
-| `read_file` / `read_many_files` | `Read` |
-| `write_file` | `Write` |
-| `replace` | `Edit` |
-| `run_shell_command` | `Bash` |
-| `grep` | `Grep` |
-| `glob` | `Glob` |
-| `web_fetch` | `WebFetch` |
-| `google_web_search` | `WebSearch` |
-| `ask_user` | `AskUserQuestion` |
-| `write_todos` | `TodoWrite` |
+- **`GET /api/v1/harnesses`** endpoint returns available harnesses from `Runner.Backends`.
+- **`dto/types.go`** — `HarnessJSON` type with `Name` field.
+- **`dto/routes.go`** — `listHarnesses` route registered.
+- **`App.tsx`** — Fetches harnesses on mount. Shows a harness selector dropdown when 2+ harnesses are available. `createTask` passes `selectedHarness()` instead of hardcoded `"claude"`.
+- **`TaskItemSummary`** — Already displays harness name for non-claude tasks.
 
-**Important for the implementer:** Once a Gemini backend exists, `task/load.go:loadLogFile` needs updating — currently it calls `agent.ParseMessage` (Claude format) for all log lines. It should read `meta.Harness` and dispatch to the correct backend's `ParseMessage`. The `LoadLogs` function (or `loadLogFile`) will need a `map[string]agent.Backend` parameter or a parse-function registry.
+## Completed: Rename `ClaudeCodeVersion` → `AgentVersion` (Step 5)
 
-### 4. Frontend: harness selector
-
-- Task creation form gets a harness selector dropdown (populate from available backends — may need a new `/api/v1/harnesses` endpoint or include in repos response)
-- Display the harness name in the task header (already shown in `TaskItemSummary` for non-claude harnesses)
-
-### 5. Rename `ClaudeCodeVersion` → `AgentVersion` throughout dto/frontend
-
-Touch points:
-- `agent/types.go`: `SystemInitMessage.Version` JSON tag `claude_code_version` — Gemini will populate this with its own version
-- `server/dto/events.go`: `EventInit.ClaudeCodeVersion` → `AgentVersion`
-- `task/task.go`: `Task.ClaudeCodeVersion` → `AgentVersion`, `addMessage`, `RestoreMessages`
-- `server/dto/types.go`: `TaskJSON.ClaudeCodeVersion` → `AgentVersion`
-- `server/server.go`: `toJSON` mapping
-- `server/eventconv.go`: `convertMessage` init case
-- Frontend: `TaskItemSummary.tsx` (props + display), `TaskList.tsx` (prop pass-through), `TaskView.tsx` (session started display)
-- Tests: `server_test.go`, `eventconv_test.go`, `agent_test.go` — update field names and JSON literals
+- **`task/task.go`** — `Task.AgentVersion` (was `ClaudeCodeVersion`).
+- **`dto/events.go`** — `EventInit.AgentVersion` with JSON tag `"agentVersion"`.
+- **`dto/types.go`** — `TaskJSON.AgentVersion` with JSON tag `"agentVersion"`.
+- **`server/server.go`** — `toJSON` maps `AgentVersion`.
+- **`server/eventconv.go`** — `convertMessage` init case maps `AgentVersion`.
+- **Frontend** — `TaskItemSummary`, `TaskList`, `TaskView` all use `agentVersion`.
+- **Tests** — `eventconv_test.go`, `server_test.go` updated.
+- **Note:** `agent/types.go` `SystemInitMessage.Version` JSON tag remains `"claude_code_version"` because that is Claude Code's wire format. The Gemini backend constructs `SystemInitMessage` directly in Go, so the JSON tag only matters for Claude.
 
 ## Risk Assessment
 
-- **Gemini stream-json format is under-documented.** Need to empirically capture output from `gemini -p "hello" --output-format stream-json` and reverse-engineer the event schema. The format was stabilized in v0.20+ but exact field names need validation.
-- **Relay compatibility.** The relay.py is process-agnostic (stdin/stdout bridge), so it should work with Gemini CLI unchanged. The only assumption is that the child process reads stdin and writes stdout — both CLIs do this.
-- **Cost tracking.** Gemini has a free tier (no cost). The `ResultMessage.TotalCostUSD` would be 0 or derived from Gemini's stats if available.
+- **Relay compatibility.** The relay.py is process-agnostic (stdin/stdout bridge), so it works with Gemini CLI unchanged.
+- **Cost tracking.** Gemini has a free tier (no cost). `ResultMessage.TotalCostUSD` is 0 for Gemini.
 - **Session resume.** Gemini's `--resume` works differently (local file-based sessions). Need to verify it works in a container where `~/.gemini/` persists.
+- **Gemini CLI `--yolo` flag conflict.** When `--yolo` is a positional arg (e.g. via alias), `-p` fails with "Cannot use both a positional prompt and the --prompt (-p) flag together". The relay launches gemini directly (not via alias), so this is not an issue in practice.
 
 ## Non-Goals (for now)
 - MCP server integration (both CLIs support it, but not needed for the core abstraction)

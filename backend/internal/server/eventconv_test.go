@@ -38,8 +38,8 @@ func TestConvertSystemInit(t *testing.T) {
 	if ev.Init.Model != "claude-opus-4-6" {
 		t.Errorf("model = %q, want %q", ev.Init.Model, "claude-opus-4-6")
 	}
-	if ev.Init.ClaudeCodeVersion != "2.1.34" {
-		t.Errorf("version = %q, want %q", ev.Init.ClaudeCodeVersion, "2.1.34")
+	if ev.Init.AgentVersion != "2.1.34" {
+		t.Errorf("version = %q, want %q", ev.Init.AgentVersion, "2.1.34")
 	}
 	if len(ev.Init.Tools) != 2 {
 		t.Errorf("tools = %v, want 2 items", ev.Init.Tools)

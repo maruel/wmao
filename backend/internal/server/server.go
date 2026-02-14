@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -167,6 +168,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/harnesses", handle(s.listHarnesses))
 	mux.HandleFunc("GET /api/v1/repos", handle(s.listRepos))
 	mux.HandleFunc("GET /api/v1/tasks", handle(s.listTasks))
 	mux.HandleFunc("POST /api/v1/tasks", handle(s.createTask))
@@ -228,6 +230,24 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		return nil
 	}
 	return err
+}
+
+func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.HarnessJSON, error) {
+	// Collect unique harness names from all runners.
+	seen := make(map[agent.Harness]struct{})
+	for _, r := range s.runners {
+		for h := range r.Backends {
+			seen[h] = struct{}{}
+		}
+	}
+	out := make([]dto.HarnessJSON, 0, len(seen))
+	for h := range seen {
+		out = append(out, dto.HarnessJSON{Name: string(h)})
+	}
+	slices.SortFunc(out, func(a, b dto.HarnessJSON) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return &out, nil
 }
 
 func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.RepoJSON, error) {
@@ -789,19 +809,19 @@ func (s *Server) repoURL(rel string) string {
 
 func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 	j := dto.TaskJSON{
-		ID:                e.task.ID,
-		Task:              e.task.Prompt,
-		Repo:              e.task.Repo,
-		RepoURL:           s.repoURL(e.task.Repo),
-		Branch:            e.task.Branch,
-		Container:         e.task.Container,
-		State:             e.task.State.String(),
-		StateUpdatedAt:    float64(e.task.StateUpdatedAt.UnixMilli()) / 1e3,
-		Harness:           toDTOHarness(e.task.Harness),
-		Model:             e.task.Model,
-		ClaudeCodeVersion: e.task.ClaudeCodeVersion,
-		SessionID:         e.task.SessionID,
-		InPlanMode:        e.task.InPlanMode,
+		ID:             e.task.ID,
+		Task:           e.task.Prompt,
+		Repo:           e.task.Repo,
+		RepoURL:        s.repoURL(e.task.Repo),
+		Branch:         e.task.Branch,
+		Container:      e.task.Container,
+		State:          e.task.State.String(),
+		StateUpdatedAt: float64(e.task.StateUpdatedAt.UnixMilli()) / 1e3,
+		Harness:        toDTOHarness(e.task.Harness),
+		Model:          e.task.Model,
+		AgentVersion:   e.task.AgentVersion,
+		SessionID:      e.task.SessionID,
+		InPlanMode:     e.task.InPlanMode,
 	}
 	if !e.task.StartedAt.IsZero() {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()

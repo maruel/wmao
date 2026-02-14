@@ -16,6 +16,11 @@ const (
 	HarnessGemini Harness = "gemini"
 )
 
+// HarnessJSON is the JSON representation of an available harness.
+type HarnessJSON struct {
+	Name string `json:"name"`
+}
+
 // RepoJSON is the JSON representation of a discovered repo.
 type RepoJSON struct {
 	Path       string `json:"path"`
@@ -46,7 +51,7 @@ type TaskJSON struct {
 	// Per-task harness/container metadata.
 	Harness           Harness `json:"harness"`
 	Model             string  `json:"model,omitempty"`
-	ClaudeCodeVersion string  `json:"claudeCodeVersion,omitempty"`
+	AgentVersion      string  `json:"agentVersion,omitempty"`
 	SessionID         string  `json:"sessionID,omitempty"`
 	ContainerUptimeMs int64   `json:"containerUptimeMs,omitempty"`
 	InPlanMode        bool    `json:"inPlanMode,omitempty"`

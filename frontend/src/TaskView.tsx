@@ -314,7 +314,7 @@ function MessageItem(props: { ev: EventMessage }) {
       <Match when={props.ev.init} keyed>
         {(init) => (
           <div class={styles.systemInit}>
-            Session started &middot; {init.model} &middot; {init.claudeCodeVersion}
+            Session started &middot; {init.model} &middot; {init.agentVersion}
           </div>
         )}
       </Match>

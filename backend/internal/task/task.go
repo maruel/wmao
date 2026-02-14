@@ -67,22 +67,22 @@ func (s State) String() string {
 
 // Task represents a single unit of work.
 type Task struct {
-	ID                ksid.ID
-	Prompt            string
-	Repo              string        // Relative repo path (for display/API).
-	Harness           agent.Harness // Agent harness ("claude", "gemini", etc.).
-	MaxTurns          int
-	Branch            string
-	Container         string
-	State             State
-	StateUpdatedAt    time.Time // UTC timestamp of the last state transition.
-	SessionID         string    // Claude Code session ID, captured from SystemInitMessage.
-	Model             string    // Model name, captured from SystemInitMessage.
-	ClaudeCodeVersion string    // Claude Code version, captured from SystemInitMessage.
-	PlanFile          string    // Path to plan file inside container, captured from Write tool_use.
-	InPlanMode        bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
-	StartedAt         time.Time
-	RelayOffset       int64 // Bytes received from relay output.jsonl, for reconnect.
+	ID             ksid.ID
+	Prompt         string
+	Repo           string        // Relative repo path (for display/API).
+	Harness        agent.Harness // Agent harness ("claude", "gemini", etc.).
+	MaxTurns       int
+	Branch         string
+	Container      string
+	State          State
+	StateUpdatedAt time.Time // UTC timestamp of the last state transition.
+	SessionID      string    // Claude Code session ID, captured from SystemInitMessage.
+	Model          string    // Model name, captured from SystemInitMessage.
+	AgentVersion   string    // Agent version, captured from SystemInitMessage.
+	PlanFile       string    // Path to plan file inside container, captured from Write tool_use.
+	InPlanMode     bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
+	StartedAt      time.Time
+	RelayOffset    int64 // Bytes received from relay output.jsonl, for reconnect.
 
 	mu       sync.Mutex
 	msgs     []agent.Message
@@ -134,7 +134,7 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		if init, ok := msgs[i].(*agent.SystemInitMessage); ok && init.SessionID != "" {
 			t.SessionID = init.SessionID
 			t.Model = init.Model
-			t.ClaudeCodeVersion = init.Version
+			t.AgentVersion = init.Version
 			break
 		}
 	}
@@ -182,7 +182,7 @@ func (t *Task) addMessage(m agent.Message) {
 	if init, ok := m.(*agent.SystemInitMessage); ok && init.SessionID != "" {
 		t.SessionID = init.SessionID
 		t.Model = init.Model
-		t.ClaudeCodeVersion = init.Version
+		t.AgentVersion = init.Version
 	}
 	// Track plan mode and plan file from tool_use events.
 	// Capture plan file path from Write tool_use targeting .claude/plans/.
