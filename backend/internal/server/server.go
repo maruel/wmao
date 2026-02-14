@@ -275,7 +275,12 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest("unknown repo: " + req.Repo)
 	}
 
-	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: toAgentHarness(req.Harness), Model: req.Model}
+	harness := toAgentHarness(req.Harness)
+	if _, ok := runner.Backends[harness]; !ok {
+		return nil, dto.BadRequest("unknown harness: " + string(req.Harness))
+	}
+
+	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model}
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()

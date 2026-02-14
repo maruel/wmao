@@ -6,6 +6,7 @@ Go backend for caic. Packages under `internal/` are private.
 
 - Pass `context.Context` through all call chains.
 - Serialize git operations that touch the working directory (branch checkout, push).
+- Use subtests (`t.Run`) to group related test cases under a single `Test*` function.
 
 ## References
 
