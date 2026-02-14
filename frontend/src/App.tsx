@@ -57,6 +57,21 @@ export default function App() {
   // Per-task input drafts survive task switching.
   const [inputDrafts, setInputDrafts] = createSignal<Map<string, string>>(new Map());
 
+  // Ref to the main prompt textarea for focusing after Escape.
+  let promptRef: HTMLTextAreaElement | undefined;
+
+  // Escape key dismisses task detail view and focuses the prompt textarea.
+  {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedId() !== null) {
+        navigate("/");
+        promptRef?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  }
+
   // Track previous task states to detect transitions to "waiting".
   let prevStates = new Map<string, string>();
 
@@ -236,6 +251,7 @@ export default function App() {
           </select>
         </Show>
         <AutoResizeTextarea
+          ref={(el) => { promptRef = el; }}
           value={prompt()}
           onInput={setPrompt}
           onSubmit={submitTask}

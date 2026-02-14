@@ -10,6 +10,7 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   class?: string;
+  ref?: (el: HTMLTextAreaElement) => void;
 }
 
 export default function AutoResizeTextarea(props: Props) {
@@ -26,6 +27,7 @@ export default function AutoResizeTextarea(props: Props) {
 
   return (
     <textarea
+      ref={props.ref}
       value={props.value}
       onInput={handleInput}
       onKeyDown={handleKeyDown}
