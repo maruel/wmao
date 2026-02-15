@@ -178,6 +178,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
 	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
+	mux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
 	// Serve embedded frontend with SPA fallback and precompressed variants.
@@ -539,6 +540,60 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.VoiceTokenResp, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return nil, dto.InternalError("GEMINI_API_KEY not configured")
+	}
+	now := time.Now().UTC()
+	expireTime := now.Add(30 * time.Minute).Format(time.RFC3339)
+	newSessionExpire := now.Add(2 * time.Minute).Format(time.RFC3339)
+
+	reqBody := map[string]any{
+		"config": map[string]any{
+			"uses":                 1,
+			"expireTime":           expireTime,
+			"newSessionExpireTime": newSessionExpire,
+		},
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, dto.InternalError("failed to marshal token request").Wrap(err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://generativelanguage.googleapis.com/v1alpha/auth_tokens",
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, dto.InternalError("failed to create token request").Wrap(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, dto.InternalError("failed to fetch ephemeral token").Wrap(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, dto.InternalError(fmt.Sprintf("Gemini auth_tokens returned %d: %s", resp.StatusCode, string(body)))
+	}
+
+	var tokenResp struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, dto.InternalError("failed to decode token response").Wrap(err)
+	}
+
+	return &dto.VoiceTokenResp{
+		Token:     tokenResp.Name,
+		ExpiresAt: expireTime,
+	}, nil
 }
 
 // SetRunnerOps overrides container and agent backends on all runners.

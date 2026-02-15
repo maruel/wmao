@@ -57,5 +57,5 @@ export default tseslint.config(
       'solid/style-prop': 'error',
     },
   },
-  { ignores: ['backend/**', 'sdk/**', 'frontend/dist/**', 'frontend/public/**'] },
+  { ignores: ['backend/**', 'sdk/**', 'frontend/dist/**', 'frontend/public/**', 'android/**'] },
 );

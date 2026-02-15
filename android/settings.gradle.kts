@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "caic"
 include(":app")
+include(":sdk")
  

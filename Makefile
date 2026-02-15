@@ -26,6 +26,7 @@ $(FRONTEND_STAMP): pnpm-lock.yaml
 
 types:
 	@go generate ./...
+	@go run ./backend/internal/cmd/gen-api-client --lang=kotlin --out=android/sdk/src/main/kotlin/com/caic/sdk
 
 build: $(FRONTEND_STAMP) types docs
 	@NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false pnpm build

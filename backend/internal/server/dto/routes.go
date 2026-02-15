@@ -25,4 +25,5 @@ var Routes = []Route{
 	{Name: "terminateTask", Method: "POST", Path: "/api/v1/tasks/{id}/terminate", RespType: "StatusResp"},
 	{Name: "syncTask", Method: "POST", Path: "/api/v1/tasks/{id}/sync", ReqType: "SyncReq", RespType: "SyncResp"},
 	{Name: "getUsage", Method: "GET", Path: "/api/v1/usage", RespType: "UsageResp"},
+	{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", RespType: "VoiceTokenResp"},
 }

@@ -390,6 +390,13 @@ export interface UsageResp {
   extraUsage: ExtraUsage;
 }
 /**
+ * VoiceTokenResp is the response for GET /api/v1/voice/token.
+ */
+export interface VoiceTokenResp {
+  token: string;
+  expiresAt: string;
+}
+/**
  * EmptyReq is used for endpoints that take no request body.
  */
 export interface EmptyReq {

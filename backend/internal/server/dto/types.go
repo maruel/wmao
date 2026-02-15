@@ -138,5 +138,11 @@ type UsageResp struct {
 	ExtraUsage ExtraUsage  `json:"extraUsage"`
 }
 
+// VoiceTokenResp is the response for GET /api/v1/voice/token.
+type VoiceTokenResp struct {
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
 // EmptyReq is used for endpoints that take no request body.
 type EmptyReq struct{}
