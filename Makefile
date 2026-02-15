@@ -1,4 +1,4 @@
-.PHONY: help build dev test coverage lint lint-go lint-frontend lint-python lint-android lint-fix docs types git-hooks frontend-dev upgrade e2e android-build android-test
+.PHONY: help build dev test coverage lint lint-all lint-go lint-frontend lint-python lint-android lint-fix docs types git-hooks frontend-dev upgrade e2e android-build android-test
 
 FRONTEND_STAMP=node_modules/.stamp
 HTTP?=:8080
@@ -44,7 +44,8 @@ test:
 coverage:
 	@go test -coverprofile=coverage.out ./...
 
-lint: lint-go lint-frontend lint-python lint-android
+lint: lint-go lint-frontend lint-python
+lint-all: lint-go lint-frontend lint-python lint-android
 
 lint-go:
 	@which golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest

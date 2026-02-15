@@ -25,10 +25,14 @@ calling any `md` command for that task.
 
 ### Professionalism
 
-After making changes, run:
+After making changes, lint only the areas you touched:
 
 ```bash
+# Go/frontend/Python changes:
 make lint build test
+
+# Android changes:
+make lint-android android-build android-test
 ```
 
 ### Make Targets
@@ -41,7 +45,8 @@ make types          # Generate types (go generate → tygo + gen-api-client)
 make docs           # Update AGENTS.md file indexes
 make test           # Go unit tests with coverage
 make e2e            # Playwright end-to-end tests
-make lint           # Run all linters (Go + frontend + Python + Android)
+make lint           # Run linters (Go + frontend + Python)
+make lint-all       # Run all linters including Android
 make lint-fix       # Auto-fix all linters
 make android-build  # Build Android app (debug APK)
 make android-test   # Run Android unit tests
