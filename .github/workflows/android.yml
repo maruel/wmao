@@ -16,18 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-android-action
-      - name: Lint (detekt)
-        working-directory: android
-        run: ./gradlew detekt
-      - name: Lint (Android)
-        working-directory: android
-        run: ./gradlew lint
+      - name: Lint
+        run: make lint-android
       - name: Build
-        working-directory: android
-        run: ./gradlew assembleDebug
+        run: make android-build
       - name: Test
-        working-directory: android
-        run: ./gradlew test
+        run: make android-test
       - name: Upload lint results
         if: always()
         uses: actions/upload-artifact@v4
