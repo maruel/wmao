@@ -1,4 +1,4 @@
-"""Tests for relay.py graceful shutdown via null-byte sentinel."""
+"""Tests for relay.py: graceful shutdown, SSH drop recovery, and exit reporting."""
 
 import json
 import os
@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 RELAY_PY = os.path.join(os.path.dirname(__file__), "relay.py")
@@ -157,6 +158,140 @@ def test_ssh_drop_keeps_subprocess():
         _cleanup(relay_dir)
 
 
+def _read_stdout_thread(pipe, result_list):
+    """Read all data from pipe and append to result_list."""
+    data = pipe.read()
+    result_list.append(data)
+
+
+def test_subprocess_crash_reports_exit():
+    """When the subprocess exits non-zero, relay emits a relay_exit line in
+    output.jsonl and sends it to the attached client."""
+    relay_dir = tempfile.mkdtemp(prefix="caic-relay-test-")
+    output_path = os.path.join(relay_dir, "output.jsonl")
+    env = _make_env(relay_dir)
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, RELAY_PY, "serve-attach", "--dir", relay_dir, "--",
+             "/bin/sh", "-c", "echo starting; sleep 0.3; exit 42"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+
+        # Read stdout in background; the attach client keeps stdout open until
+        # the relay daemon closes the socket.
+        stdout_chunks = []
+        reader = threading.Thread(target=_read_stdout_thread, args=(proc.stdout, stdout_chunks))
+        reader.start()
+
+        # Wait for stdout reader to finish (relay closed the socket after
+        # subprocess exited), then close stdin to let the attach client exit.
+        reader.join(timeout=10)
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+        stdout_data = stdout_chunks[0] if stdout_chunks else b""
+
+        # Client stdout should contain the relay_exit JSON line.
+        found_client = False
+        for line in stdout_data.splitlines():
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == "relay_exit":
+                assert msg["code"] == 42, f"expected code 42, got {msg['code']}"
+                assert msg["signal"] is None, f"expected signal None, got {msg['signal']}"
+                found_client = True
+                break
+        assert found_client, f"relay_exit not found in client stdout: {stdout_data!r}"
+
+        # output.jsonl should also contain the relay_exit line.
+        with open(output_path, "rb") as f:
+            log_data = f.read()
+        found_log = False
+        for line in log_data.splitlines():
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == "relay_exit":
+                assert msg["code"] == 42
+                found_log = True
+                break
+        assert found_log, f"relay_exit not found in output.jsonl: {log_data!r}"
+    finally:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        _cleanup(relay_dir)
+
+
+def test_clean_exit_reports_zero():
+    """When the subprocess exits 0, relay_exit has code=0."""
+    relay_dir = tempfile.mkdtemp(prefix="caic-relay-test-")
+    output_path = os.path.join(relay_dir, "output.jsonl")
+    env = _make_env(relay_dir)
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, RELAY_PY, "serve-attach", "--dir", relay_dir, "--",
+             "/bin/sh", "-c", "echo hello; sleep 0.3; exit 0"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+
+        stdout_chunks = []
+        reader = threading.Thread(target=_read_stdout_thread, args=(proc.stdout, stdout_chunks))
+        reader.start()
+
+        reader.join(timeout=10)
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+        stdout_data = stdout_chunks[0] if stdout_chunks else b""
+
+        found = False
+        for line in stdout_data.splitlines():
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == "relay_exit":
+                assert msg["code"] == 0, f"expected code 0, got {msg['code']}"
+                assert msg["signal"] is None
+                found = True
+                break
+        assert found, f"relay_exit not found in client stdout: {stdout_data!r}"
+
+        # Also verify output.jsonl.
+        with open(output_path, "rb") as f:
+            log_data = f.read()
+        found_log = False
+        for line in log_data.splitlines():
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == "relay_exit":
+                assert msg["code"] == 0
+                found_log = True
+                break
+        assert found_log, f"relay_exit not found in output.jsonl: {log_data!r}"
+    finally:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        _cleanup(relay_dir)
+
+
 if __name__ == "__main__":
     print("test_close_stdin_sentinel...", end=" ", flush=True)
     test_close_stdin_sentinel()
@@ -164,6 +299,14 @@ if __name__ == "__main__":
 
     print("test_ssh_drop_keeps_subprocess...", end=" ", flush=True)
     test_ssh_drop_keeps_subprocess()
+    print("OK")
+
+    print("test_subprocess_crash_reports_exit...", end=" ", flush=True)
+    test_subprocess_crash_reports_exit()
+    print("OK")
+
+    print("test_clean_exit_reports_zero...", end=" ", flush=True)
+    test_clean_exit_reports_zero()
     print("OK")
 
     print("All tests passed.")

@@ -110,10 +110,6 @@ def serve(cmd_args, work_dir):
                 send_to_client(data)
         except (OSError, ValueError):
             pass
-        finally:
-            output_file.close()
-            # Process exited — close client.
-            set_client(None)
 
     t = threading.Thread(target=reader_thread, daemon=True)
     t.start()
@@ -195,6 +191,16 @@ def serve(cmd_args, work_dir):
     # Wait for subprocess to exit.
     proc.wait()
     t.join(timeout=5)
+
+    # Report exit status to output log and connected client.
+    rc = proc.returncode
+    exit_msg = {"type": "relay_exit", "code": rc, "signal": abs(rc) if rc < 0 else None}
+    exit_line = json.dumps(exit_msg).encode() + b"\n"
+    output_file.write(exit_line)
+    output_file.flush()
+    output_file.close()
+    send_to_client(exit_line)
+    set_client(None)
 
     # Clean up.
     srv.close()

@@ -56,11 +56,11 @@ func TestSessionLifecycle(t *testing.T) {
 	// Simulate the readMessages goroutine.
 	go func() {
 		defer close(s.done)
-		result, parseErr := readMessages(stdoutR, msgCh, nil, ParseMessage)
-		s.result = result
-		if parseErr != nil {
-			s.err = parseErr
-		} else if result == nil {
+		rr := readMessages(stdoutR, msgCh, nil, ParseMessage)
+		s.result = rr.result
+		if rr.err != nil {
+			s.err = rr.err
+		} else if rr.result == nil {
 			s.err = io.ErrUnexpectedEOF
 		}
 	}()
@@ -214,6 +214,60 @@ func TestParseMessage(t *testing.T) {
 	})
 }
 
+func TestParseRelayExit(t *testing.T) {
+	t.Run("ValidNonZero", func(t *testing.T) {
+		line := []byte(`{"type":"relay_exit","code":42,"signal":null}`)
+		re, ok := parseRelayExit(line)
+		if !ok {
+			t.Fatal("expected relay_exit to be parsed")
+		}
+		if re.Code != 42 {
+			t.Errorf("code = %d, want 42", re.Code)
+		}
+		if re.Signal != nil {
+			t.Errorf("signal = %v, want nil", re.Signal)
+		}
+	})
+	t.Run("Signal", func(t *testing.T) {
+		line := []byte(`{"type":"relay_exit","code":-9,"signal":9}`)
+		re, ok := parseRelayExit(line)
+		if !ok {
+			t.Fatal("expected relay_exit to be parsed")
+		}
+		if re.Code != -9 {
+			t.Errorf("code = %d, want -9", re.Code)
+		}
+		if re.Signal == nil || *re.Signal != 9 {
+			t.Errorf("signal = %v, want 9", re.Signal)
+		}
+	})
+	t.Run("NonMatching", func(t *testing.T) {
+		line := []byte(`{"type":"assistant","message":{}}`)
+		_, ok := parseRelayExit(line)
+		if ok {
+			t.Fatal("should not match non-relay_exit line")
+		}
+	})
+}
+
+func TestRelayExitError(t *testing.T) {
+	t.Run("ExitCode", func(t *testing.T) {
+		re := &RelayExitMessage{Code: 1}
+		err := relayExitError(re)
+		if err.Error() != "harness exited with code 1" {
+			t.Errorf("err = %q", err)
+		}
+	})
+	t.Run("Signal", func(t *testing.T) {
+		sig := 9
+		re := &RelayExitMessage{Code: -9, Signal: &sig}
+		err := relayExitError(re)
+		if err.Error() != "harness killed by signal 9" {
+			t.Errorf("err = %q", err)
+		}
+	})
+}
+
 func TestReadMessages(t *testing.T) {
 	t.Run("FullStream", func(t *testing.T) {
 		lines := []string{
@@ -224,16 +278,16 @@ func TestReadMessages(t *testing.T) {
 		input := strings.Join(lines, "\n")
 
 		ch := make(chan Message, 16)
-		result, err := readMessages(strings.NewReader(input), ch, nil, ParseMessage)
+		rr := readMessages(strings.NewReader(input), ch, nil, ParseMessage)
 		close(ch)
-		if err != nil {
-			t.Fatal(err)
+		if rr.err != nil {
+			t.Fatal(rr.err)
 		}
-		if result == nil {
+		if rr.result == nil {
 			t.Fatal("expected result, got nil")
 		}
-		if result.Result != "hi" {
-			t.Errorf("result = %q, want %q", result.Result, "hi")
+		if rr.result.Result != "hi" {
+			t.Errorf("result = %q, want %q", rr.result.Result, "hi")
 		}
 
 		var count int
@@ -244,6 +298,37 @@ func TestReadMessages(t *testing.T) {
 			t.Errorf("message count = %d, want 3", count)
 		}
 	})
+	t.Run("RelayExit", func(t *testing.T) {
+		lines := []string{
+			`{"type":"system","subtype":"init","cwd":"/","session_id":"s","tools":[],"model":"m","claude_code_version":"1","uuid":"u"}`,
+			`{"type":"relay_exit","code":42,"signal":null}`,
+		}
+		input := strings.Join(lines, "\n")
+
+		ch := make(chan Message, 16)
+		rr := readMessages(strings.NewReader(input), ch, nil, ParseMessage)
+		close(ch)
+		if rr.err != nil {
+			t.Fatal(rr.err)
+		}
+		if rr.result != nil {
+			t.Fatal("expected no result")
+		}
+		if rr.relayExit == nil {
+			t.Fatal("expected relayExit")
+		}
+		if rr.relayExit.Code != 42 {
+			t.Errorf("code = %d, want 42", rr.relayExit.Code)
+		}
+		// relay_exit should NOT be dispatched to msgCh.
+		var count int
+		for range ch {
+			count++
+		}
+		if count != 1 {
+			t.Errorf("message count = %d, want 1 (only system init)", count)
+		}
+	})
 	t.Run("LogWriter", func(t *testing.T) {
 		lines := []string{
 			`{"type":"system","subtype":"init","cwd":"/","session_id":"s","tools":[],"model":"m","claude_code_version":"1","uuid":"u"}`,
@@ -252,11 +337,11 @@ func TestReadMessages(t *testing.T) {
 		input := strings.Join(lines, "\n")
 
 		var buf bytes.Buffer
-		result, err := readMessages(strings.NewReader(input), nil, &buf, ParseMessage)
-		if err != nil {
-			t.Fatal(err)
+		rr := readMessages(strings.NewReader(input), nil, &buf, ParseMessage)
+		if rr.err != nil {
+			t.Fatal(rr.err)
 		}
-		if result == nil {
+		if rr.result == nil {
 			t.Fatal("expected result")
 		}
 

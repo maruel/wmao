@@ -152,6 +152,17 @@ type RawMessage struct {
 // Type implements Message.
 func (m *RawMessage) Type() string { return m.MessageType }
 
+// RelayExitMessage is emitted by the relay daemon after the harness subprocess
+// exits. It carries the process exit code (and signal, if killed).
+type RelayExitMessage struct {
+	MessageType string `json:"type"`
+	Code        int    `json:"code"`
+	Signal      *int   `json:"signal"`
+}
+
+// Type implements Message.
+func (m *RelayExitMessage) Type() string { return "relay_exit" }
+
 // MetaMessage is written as the first line of a JSONL log file. It captures
 // task-level metadata so logs can be reloaded on restart.
 type MetaMessage struct {
