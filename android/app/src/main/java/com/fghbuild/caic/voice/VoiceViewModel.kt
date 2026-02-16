@@ -37,8 +37,8 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 voiceSessionManager.connect()
-            } catch (_: Exception) {
-                // Error will be reflected in voiceState
+            } catch (e: Exception) {
+                voiceSessionManager.setError(e.message ?: "Connection failed")
             }
         }
     }

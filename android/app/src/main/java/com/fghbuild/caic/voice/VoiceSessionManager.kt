@@ -66,9 +66,13 @@ class VoiceSessionManager @Inject constructor(
 
     var onSetActiveTask: ((String) -> Unit)? = null
 
+    fun setError(message: String) {
+        _state.update { it.copy(connected = false, error = message) }
+    }
+
     suspend fun connect() {
         val settings = settingsRepository.settings.value
-        if (settings.serverURL.isBlank()) return
+        require(settings.serverURL.isNotBlank()) { "Server URL is not configured" }
 
         val apiClient = ApiClient(settings.serverURL)
         functionHandlers = FunctionHandlers(apiClient).also {
