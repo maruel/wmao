@@ -5,6 +5,7 @@ import solidSVG from "vite-solid-svg";
 
 export default defineConfig({
   root: "frontend",
+  logLevel: "warn",
   plugins: [solidPlugin(), solidSVG()],
   resolve: {
     alias: {
