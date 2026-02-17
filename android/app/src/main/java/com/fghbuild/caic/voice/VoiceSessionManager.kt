@@ -125,7 +125,10 @@ class VoiceSessionManager @Inject constructor(
                     Uri.Builder()
                         .scheme("wss")
                         .authority("generativelanguage.googleapis.com")
-                        .path("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained")
+                        .path(
+                            "/ws/google.ai.generativelanguage.v1alpha" +
+                                ".GenerativeService.BidiGenerateContentConstrained",
+                        )
                         .appendQueryParameter("access_token", tokenResp.token)
                         .build()
                         .toString()
