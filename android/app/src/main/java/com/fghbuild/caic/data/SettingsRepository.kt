@@ -43,7 +43,7 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
         .stateIn(scope, SharingStarted.Eagerly, SettingsState())
 
     suspend fun updateServerURL(url: String) {
-        dataStore.edit { it[Keys.SERVER_URL] = url }
+        dataStore.edit { it[Keys.SERVER_URL] = url.trimEnd('/') }
     }
 
     suspend fun updateVoiceEnabled(enabled: Boolean) {

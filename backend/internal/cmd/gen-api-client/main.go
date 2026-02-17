@@ -593,7 +593,8 @@ class ApiException(
     val details: Map<String, kotlinx.serialization.json.JsonElement>? = null,
 ) : Exception(message)
 
-class ApiClient(private val baseURL: String) {
+class ApiClient(baseURL: String) {
+    private val baseURL: String = baseURL.trimEnd('/')
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMediaType = "application/json".toMediaType()
