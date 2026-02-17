@@ -7,6 +7,7 @@ import sys
 
 ALLOWED_BINARY_EXT = {".br", ".gif", ".ico", ".jar", ".jpg", ".png", ".svg", ".webp", ".zst"}
 
+
 def is_binary(file_path):
     """Simple binary detection by checking for null bytes in the first 1024 bytes."""
     if not os.path.isfile(file_path):
