@@ -78,8 +78,22 @@ class VoiceSessionManager @Inject constructor(
 
     fun setError(message: String) {
         Log.e(TAG, "setError: $message")
-        stopAudio()
-        _state.update { it.copy(connected = false, error = message, errorId = it.errorId + 1) }
+        releaseAudio()
+        _state.update {
+            it.copy(
+                connectStatus = null,
+                connected = false,
+                listening = false,
+                speaking = false,
+                error = message,
+                errorId = it.errorId + 1,
+            )
+        }
+    }
+
+    private fun setStatus(status: String) {
+        Log.i(TAG, status)
+        _state.update { it.copy(connectStatus = status, error = null) }
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
@@ -87,7 +101,7 @@ class VoiceSessionManager @Inject constructor(
         // Close any existing connection to prevent WebSocket leaks.
         webSocket?.close(WS_CLOSE_NORMAL, "Reconnecting")
         webSocket = null
-        _state.update { it.copy(error = null) }
+        setStatus("Fetching token…")
 
         scope.launch {
             try {
@@ -103,10 +117,11 @@ class VoiceSessionManager @Inject constructor(
                 }
 
                 val tokenResp = apiClient.getVoiceToken()
+                setStatus("Connecting…")
                 val wsUrl = Uri.Builder()
                     .scheme("wss")
                     .authority("generativelanguage.googleapis.com")
-                    .path("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained")
+                    .path("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent")
                     .appendQueryParameter("access_token", tokenResp.token)
                     .build()
                     .toString()
@@ -122,7 +137,7 @@ class VoiceSessionManager @Inject constructor(
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
-    fun startAudio() {
+    private fun startAudio() {
         try {
             routeToBluetoothScoIfAvailable()
             setupAudioRecord()
@@ -137,21 +152,38 @@ class VoiceSessionManager @Inject constructor(
         }
     }
 
-    fun stopAudio() {
+    /** Release audio resources without throwing. */
+    @Suppress("TooGenericExceptionCaught") // Must not throw from cleanup.
+    private fun releaseAudio() {
         recordingJob?.cancel()
         recordingJob = null
-        audioRecord?.stop()
-        audioRecord?.release()
+        try {
+            audioRecord?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioRecord.stop() failed: ${e.message}")
+        }
+        try {
+            audioRecord?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioRecord.release() failed: ${e.message}")
+        }
         audioRecord = null
-        audioTrack?.stop()
-        audioTrack?.release()
+        try {
+            audioTrack?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioTrack.stop() failed: ${e.message}")
+        }
+        try {
+            audioTrack?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioTrack.release() failed: ${e.message}")
+        }
         audioTrack = null
         clearCommunicationDevice()
-        _state.update { it.copy(listening = false, speaking = false) }
     }
 
     fun disconnect() {
-        stopAudio()
+        releaseAudio()
         webSocket?.close(WS_CLOSE_NORMAL, "User disconnected")
         webSocket = null
         functionHandlers = null
@@ -189,6 +221,7 @@ class VoiceSessionManager @Inject constructor(
 
     private fun sendSetupMessage(voiceName: String) {
         val setup = buildSetupMessage(voiceName)
+        Log.i(TAG, "sending setup message")
         webSocket?.send(setup)
     }
 
@@ -274,8 +307,10 @@ class VoiceSessionManager @Inject constructor(
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (isStale(webSocket)) return
+            setStatus("Sending setup…")
             val voiceName = settingsRepository.settings.value.voiceName
             sendSetupMessage(voiceName)
+            setStatus("Waiting for server…")
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -288,11 +323,13 @@ class VoiceSessionManager @Inject constructor(
             t: Throwable,
             response: Response?,
         ) {
+            Log.e(TAG, "WebSocket failure: ${t.message}", t)
             if (isStale(webSocket)) return
             setError(t.message ?: "WebSocket connection failed")
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            Log.i(TAG, "WebSocket closing: code=$code reason=$reason")
             webSocket.close(code, reason)
         }
 
@@ -301,13 +338,14 @@ class VoiceSessionManager @Inject constructor(
             code: Int,
             reason: String,
         ) {
+            Log.i(TAG, "WebSocket closed: code=$code reason=$reason")
             if (isStale(webSocket)) return
             if (!_state.value.connected) {
                 // Connection closed before setupComplete — surface an error.
                 val msg = formatCloseReason(code, reason)
                 setError(msg)
             } else {
-                _state.update { it.copy(connected = false) }
+                _state.update { it.copy(connected = false, listening = false, speaking = false) }
             }
         }
     }
@@ -327,7 +365,9 @@ class VoiceSessionManager @Inject constructor(
             val msg = json.decodeFromString<JsonElement>(text).jsonObject
             when {
                 "setupComplete" in msg -> {
-                    _state.update { it.copy(connected = true, error = null) }
+                    Log.i(TAG, "setupComplete received, starting audio")
+                    _state.update { it.copy(connectStatus = null, connected = true, error = null) }
+                    startAudio()
                 }
                 "serverContent" in msg -> {
                     handleServerContent(msg["serverContent"]!!.jsonObject)
@@ -534,6 +574,7 @@ class VoiceSessionManager @Inject constructor(
 }
 
 data class VoiceState(
+    val connectStatus: String? = null,
     val connected: Boolean = false,
     val listening: Boolean = false,
     val speaking: Boolean = false,

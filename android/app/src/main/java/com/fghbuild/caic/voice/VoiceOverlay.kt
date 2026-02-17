@@ -52,8 +52,6 @@ fun VoiceOverlay(
     voiceState: VoiceState,
     voiceEnabled: Boolean,
     onConnect: () -> Unit,
-    onStartListening: () -> Unit,
-    onStopListening: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,13 +65,14 @@ fun VoiceOverlay(
     ) {
         when {
             voiceState.error != null -> ErrorMicButton(onConnect)
-            !voiceState.connected -> IdleMicButton(onConnect)
+            voiceState.connectStatus != null -> ConnectingIndicator(voiceState.connectStatus)
             voiceState.listening || voiceState.speaking -> ActiveVoicePanel(
                 voiceState = voiceState,
-                onStopListening = onStopListening,
                 onDisconnect = onDisconnect,
             )
-            else -> ConnectedMicButton(onStartListening)
+            !voiceState.connected -> IdleMicButton(onConnect)
+            // Connected but audio not yet started (brief transition).
+            else -> ConnectingIndicator("Starting audio…")
         }
     }
 }
@@ -86,7 +85,7 @@ private fun IdleMicButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ConnectedMicButton(onClick: () -> Unit) {
+private fun ConnectingIndicator(status: String) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val alpha by infiniteTransition.animateFloat(
         initialValue = PulseMinAlpha,
@@ -97,19 +96,29 @@ private fun ConnectedMicButton(onClick: () -> Unit) {
         ),
         label = "pulseAlpha",
     )
-    FloatingActionButton(
-        onClick = onClick,
-        containerColor = MaterialTheme.colorScheme.primaryContainer,
+    Surface(
+        shape = RoundedCornerShape(OverlayCornerRadius.dp),
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
         modifier = Modifier.alpha(alpha),
     ) {
-        Icon(Icons.Default.Mic, contentDescription = "Start listening")
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Default.Mic, contentDescription = null)
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
 @Composable
 private fun ActiveVoicePanel(
     voiceState: VoiceState,
-    onStopListening: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     Surface(
@@ -144,10 +153,7 @@ private fun ActiveVoicePanel(
                 modifier = Modifier.weight(1f),
             )
 
-            IconButton(onClick = {
-                onStopListening()
-                onDisconnect()
-            }) {
+            IconButton(onClick = onDisconnect) {
                 Icon(Icons.Default.Stop, contentDescription = "End voice")
             }
         }

@@ -37,14 +37,6 @@ class VoiceViewModel @Inject constructor(
         voiceSessionManager.connect()
     }
 
-    fun startListening() {
-        voiceSessionManager.startAudio()
-    }
-
-    fun stopListening() {
-        voiceSessionManager.stopAudio()
-    }
-
     fun disconnect() {
         voiceSessionManager.disconnect()
     }

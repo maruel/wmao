@@ -132,19 +132,6 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
-                onStartListening = {
-                    if (ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO,
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        voiceViewModel.startListening()
-                    } else {
-                        onMicGranted = { voiceViewModel.startListening() }
-                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                onStopListening = { voiceViewModel.stopListening() },
                 onDisconnect = { voiceViewModel.disconnect() },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
