@@ -112,6 +112,13 @@ func (t *Task) setState(s State) {
 	t.StateUpdatedAt = time.Now().UTC()
 }
 
+// SetState updates the state under the mutex and records the transition time.
+func (t *Task) SetState(s State) {
+	t.mu.Lock()
+	t.setState(s)
+	t.mu.Unlock()
+}
+
 // LiveStats returns the latest cost, turn count, duration, and token usage
 // accumulated from ResultMessages received during execution.
 func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, usage agent.Usage) {

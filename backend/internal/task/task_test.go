@@ -160,7 +160,7 @@ func TestTask(t *testing.T) {
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
-			s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{})
+			s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{}, nil)
 			<-s.Done()
 			tk.AttachSession(&SessionHandle{Session: s})
 			err = tk.SendInput("hello")
@@ -192,7 +192,7 @@ func TestTask(t *testing.T) {
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{})
+		s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{}, nil)
 		h := &SessionHandle{Session: s}
 		tk.AttachSession(h)
 

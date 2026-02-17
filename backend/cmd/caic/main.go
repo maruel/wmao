@@ -249,7 +249,7 @@ func (*fakeBackend) Start(_ context.Context, _ agent.Options, msgCh chan<- agent
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, claude.Wire), nil
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, claude.Wire, nil), nil
 }
 
 func (*fakeBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {

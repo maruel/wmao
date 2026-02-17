@@ -10,6 +10,7 @@
 # When a client disconnects (SSH drops), the subprocess keeps running.
 
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -67,18 +68,26 @@ def serve(cmd_args, work_dir):
     # Child: become session leader so we survive SSH disconnects.
     os.setsid()
 
-    # Redirect our own stderr to a log file for debugging.
-    log_fd = os.open(
-        os.path.join(RELAY_DIR, "relay.log"),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o644,
+    # Set up logging to relay.log. This replaces the old stderr redirect so
+    # that key lifecycle events are always recorded for diagnostics.
+    log_path = os.path.join(RELAY_DIR, "relay.log")
+    logging.basicConfig(
+        filename=log_path,
+        filemode="w",
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    # Also capture stray stderr writes (e.g. from tracebacks).
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_APPEND)
     os.dup2(log_fd, 2)
     os.close(log_fd)
 
     # Write PID file.
     with open(PID_PATH, "w") as f:
         f.write(str(os.getpid()))
+
+    logging.info("relay daemon started pid=%d cmd=%s cwd=%s", os.getpid(), cmd_args, work_dir)
 
     # Start the subprocess in the working directory that contains the git
     # repository so the harness (claude, gemini) picks up the right project.
@@ -89,6 +98,7 @@ def serve(cmd_args, work_dir):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
+    logging.info("subprocess started pid=%d", proc.pid)
 
     # Open output log (append-only).
     output_file = open(OUTPUT_PATH, "ab", buffering=0)
@@ -127,12 +137,13 @@ def serve(cmd_args, work_dir):
                 output_file.write(data)
                 output_file.flush()
                 send_to_client(data)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as e:
+            logging.warning("reader_thread error: %s", e)
         finally:
             output_file.close()
             # Process exited — close client.
             set_client(None)
+            logging.info("reader_thread exited")
 
     t = threading.Thread(target=reader_thread, daemon=True)
     t.start()
@@ -173,6 +184,7 @@ def serve(cmd_args, work_dir):
                 continue
 
             set_client(conn)
+            logging.info("client connected offset=%d", offset)
 
             # Thread: read client stdin → subprocess stdin + log.
             def client_reader(c):
@@ -200,6 +212,7 @@ def serve(cmd_args, work_dir):
                 except (OSError, BrokenPipeError, ValueError):
                     pass
                 if close_stdin:
+                    logging.info("client requested stdin close")
                     try:
                         proc.stdin.close()
                     except OSError:
@@ -213,6 +226,7 @@ def serve(cmd_args, work_dir):
 
     # Wait for subprocess to exit.
     proc.wait()
+    logging.info("subprocess exited code=%d", proc.returncode)
     t.join(timeout=5)
 
     # Clean up.

@@ -647,7 +647,7 @@ func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.Empty
 	if state != task.StateWaiting && state != task.StateAsking && state != task.StateRunning {
 		return nil, dto.Conflict("task is not running or waiting")
 	}
-	entry.task.State = task.StateTerminating
+	entry.task.SetState(task.StateTerminating)
 	s.mu.Lock()
 	s.taskChanged()
 	s.mu.Unlock()
@@ -989,7 +989,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			slog.Warn("relay log from dead relay", "container", c.Name, "branch", branch, "log", relayLog)
 		}
 		if t.State == task.StateRunning {
-			t.State = task.StateWaiting
+			t.SetState(task.StateWaiting)
 			slog.Warn("adopted container with dead relay, marking as waiting",
 				"repo", ri.RelPath, "branch", branch, "container", c.Name,
 				"sessionID", t.SessionID, "messages", len(t.Messages()))
@@ -1070,8 +1070,18 @@ func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.Ses
 			}
 			t := entry.task
 			t.DetachSession()
-			slog.Info("session exited, task is waiting", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
-			t.State = task.StateWaiting
+			result, sessionErr := h.Session.Wait()
+			attrs := []any{"repo", t.Repo, "branch", t.Branch, "container", t.Container}
+			if result != nil {
+				attrs = append(attrs, "result", result.Subtype)
+			}
+			if sessionErr != nil {
+				attrs = append(attrs, "err", sessionErr)
+				slog.Warn("session exited with error, task is waiting", attrs...)
+			} else {
+				slog.Info("session exited, task is waiting", attrs...)
+			}
+			t.SetState(task.StateWaiting)
 			s.notifyTaskChange()
 		case <-entry.done:
 		}

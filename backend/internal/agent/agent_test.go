@@ -168,7 +168,7 @@ func TestSession(t *testing.T) {
 		defer slog.SetDefault(oldDefault)
 
 		msgCh := make(chan Message, 16)
-		s := NewSession(cmd, stdin, stdout, msgCh, nil, testWire{})
+		s := NewSession(cmd, stdin, stdout, msgCh, nil, testWire{}, nil)
 
 		// Kill the process (simulates container termination via SIGKILL).
 		if err := cmd.Process.Kill(); err != nil {

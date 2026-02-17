@@ -46,6 +46,7 @@ type Session struct {
 	stdin     io.WriteCloser
 	logW      io.Writer
 	wire      WireFormat
+	log       *slog.Logger
 	mu        sync.Mutex // serializes stdin writes
 	closeOnce sync.Once
 	done      chan struct{} // closed when readMessages goroutine exits
@@ -65,12 +66,16 @@ type Session struct {
 // parse error indicates corrupted output while the process may still exit 0.
 // If neither parse nor wait errors occur but no ResultMessage was seen, the
 // session reports "agent exited without a result message".
-func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, wire WireFormat) *Session {
+func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, wire WireFormat, log *slog.Logger) *Session {
+	if log == nil {
+		log = slog.Default()
+	}
 	s := &Session{
 		cmd:   cmd,
 		stdin: stdin,
 		logW:  logW,
 		wire:  wire,
+		log:   log,
 		done:  make(chan struct{}),
 	}
 
@@ -82,22 +87,22 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 		s.result = result
 		switch {
 		case result != nil:
-			slog.Info("agent session completed", "result", result.Subtype)
+			log.Info("agent session completed", "result", result.Subtype)
 		case parseErr != nil:
 			s.err = fmt.Errorf("parse: %w", parseErr)
-			slog.Error("agent session parse error", "err", parseErr)
+			log.Error("agent session parse error", "err", parseErr)
 		case waitErr != nil:
 			s.err = fmt.Errorf("agent exited: %w", waitErr)
 			// Signal-based exits (SIGKILL, SIGTERM) are expected when
 			// containers are terminated. Log at Info, not Error.
 			if isSignalExit(waitErr) {
-				slog.Info("agent session killed by signal", "err", waitErr)
+				log.Info("agent session killed by signal", "err", waitErr)
 			} else {
-				slog.Warn("agent session exited with error", "err", waitErr)
+				log.Warn("agent session exited with error", "err", waitErr)
 			}
 		default:
 			s.err = errors.New("agent exited without a result message")
-			slog.Error("agent session exited without result message")
+			log.Error("agent session exited without result message")
 		}
 	}()
 
