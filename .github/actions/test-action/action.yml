@@ -11,11 +11,8 @@ runs:
   steps:
     - name: Lint (Go)
       if: runner.os == 'Linux'
-      uses: golangci/golangci-lint-action@v9
-      with:
-        # Pin: v2.10.0 panics in staticcheck v0.7.0's buildir analyzing utf16 with Go 1.25.
-        # https://github.com/golangci/golangci-lint/issues/5037
-        version: v2.9.0
+      run: make lint-go
+      shell: bash
     - name: Lint (Frontend)
       if: runner.os == 'Linux'
       run: make lint-frontend
