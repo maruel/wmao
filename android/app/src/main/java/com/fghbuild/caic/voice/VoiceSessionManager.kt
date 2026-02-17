@@ -385,10 +385,10 @@ class VoiceSessionManager @Inject constructor(
             }
         }
         content.inputTranscription?.text?.let { text ->
-            _state.update { it.copy(transcript = it.transcript.upsertLast(TranscriptSpeaker.USER, text)) }
+            _state.update { it.copy(transcript = it.transcript.appendChunk(TranscriptSpeaker.USER, text)) }
         }
         content.outputTranscription?.text?.let { text ->
-            _state.update { it.copy(transcript = it.transcript.upsertLast(TranscriptSpeaker.ASSISTANT, text)) }
+            _state.update { it.copy(transcript = it.transcript.appendChunk(TranscriptSpeaker.ASSISTANT, text)) }
         }
         if (content.turnComplete == true) {
             _state.update {
@@ -470,18 +470,23 @@ class VoiceSessionManager @Inject constructor(
         audioTrack?.play()
     }
 
-    /** Route audio to car hands-free (BT SCO) if connected. */
+    /** Route audio to BT SCO headset if connected; skip if only built-in devices available. */
     private fun routeToBluetoothScoIfAvailable() {
         val scoDevice = audioManager.availableCommunicationDevices
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
             ?: return
+        // MODE_IN_COMMUNICATION is required for BT SCO but forces narrowband DSP — only
+        // set it when actually routing to BT, not for built-in mic use.
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.setCommunicationDevice(scoDevice)
     }
 
     private fun clearCommunicationDevice() {
-        audioManager.clearCommunicationDevice()
-        audioManager.mode = AudioManager.MODE_NORMAL
+        // Only reset mode if we actually changed it (i.e. BT SCO was active).
+        if (audioManager.mode == AudioManager.MODE_IN_COMMUNICATION) {
+            audioManager.clearCommunicationDevice()
+            audioManager.mode = AudioManager.MODE_NORMAL
+        }
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: recording failures must not crash.
@@ -573,12 +578,14 @@ data class VoiceState(
 )
 
 /**
- * If the last entry in the list has the same speaker, replace its text (partial update).
- * Otherwise append a new entry.
+ * Append a transcription chunk to the log.
+ * If the last entry is from the same speaker and not yet finalized, concatenate the new
+ * chunk onto it (the API streams one word/phrase at a time per message).
+ * Otherwise start a new entry.
  */
-private fun List<TranscriptEntry>.upsertLast(speaker: TranscriptSpeaker, text: String): List<TranscriptEntry> =
+private fun List<TranscriptEntry>.appendChunk(speaker: TranscriptSpeaker, text: String): List<TranscriptEntry> =
     if (isNotEmpty() && last().speaker == speaker && !last().final) {
-        dropLast(1) + TranscriptEntry(speaker, text)
+        dropLast(1) + TranscriptEntry(speaker, last().text + text)
     } else {
         this + TranscriptEntry(speaker, text)
     }
