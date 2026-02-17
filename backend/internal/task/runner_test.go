@@ -98,9 +98,11 @@ func TestRunner(t *testing.T) {
 		})
 		t.Run("SkipsExisting", func(t *testing.T) {
 			clone := initTestRepo(t, "main")
-			// Pre-create branches.
+			// Pre-create branches and push to remote.
 			runGit(t, clone, "branch", "caic/w0")
+			runGit(t, clone, "push", "origin", "caic/w0")
 			runGit(t, clone, "branch", "caic/w3")
+			runGit(t, clone, "push", "origin", "caic/w3")
 
 			r := &Runner{
 				BaseBranch: "main",

@@ -72,21 +72,31 @@ func TestDiscoverReposDepthZero(t *testing.T) {
 func TestMaxBranchSeqNum(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
+	bare := filepath.Join(dir, "remote.git")
+	clone := filepath.Join(dir, "clone")
 
-	// Initialize a real git repo.
-	for _, args := range [][]string{
-		{"init"},
-		{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"},
+	// Set up bare remote + clone with initial commit.
+	type gitCmd struct {
+		dir  string
+		args []string
+	}
+	for _, c := range []gitCmd{
+		{"", []string{"init", "--bare", "--initial-branch=main", bare}},
+		{"", []string{"clone", bare, clone}},
+		{clone, []string{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"}},
+		{clone, []string{"push", "origin", "main"}},
 	} {
-		cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // test helper, args are constant.
-		cmd.Dir = dir
+		cmd := exec.CommandContext(ctx, "git", c.args...) //nolint:gosec // test helper, args are constant.
+		if c.dir != "" {
+			cmd.Dir = c.dir
+		}
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
+			t.Fatalf("git %v: %v\n%s", c.args, err, out)
 		}
 	}
 
 	// No caic branches → -1.
-	n, err := MaxBranchSeqNum(ctx, dir)
+	n, err := MaxBranchSeqNum(ctx, clone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,16 +104,54 @@ func TestMaxBranchSeqNum(t *testing.T) {
 		t.Fatalf("got %d, want -1", n)
 	}
 
-	// Create some branches.
-	for _, b := range []string{"caic/w0", "caic/w3", "caic/w7", "other/branch"} {
+	// Add a second remote simulating an md container.
+	mdBare := filepath.Join(dir, "md-container.git")
+	cmd := exec.CommandContext(ctx, "git", "init", "--bare", mdBare) //nolint:gosec // test helper, args are constant.
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare md: %v\n%s", err, out)
+	}
+	cmd = exec.CommandContext(ctx, "git", "remote", "add", "md-abc123", mdBare) //nolint:gosec // test helper, args are constant.
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	// Create branches: push some to origin, some to the md remote.
+	for _, b := range []string{"caic/w0", "caic/w3", "other/branch"} {
 		cmd := exec.CommandContext(ctx, "git", "branch", b) //nolint:gosec // test helper, args are constant.
-		cmd.Dir = dir
+		cmd.Dir = clone
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git branch %s: %v\n%s", b, err, out)
 		}
+		cmd = exec.CommandContext(ctx, "git", "push", "origin", b) //nolint:gosec // test helper, args are constant.
+		cmd.Dir = clone
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git push origin %s: %v\n%s", b, err, out)
+		}
+	}
+	// Push the highest branch only to the md remote.
+	cmd = exec.CommandContext(ctx, "git", "branch", "caic/w7")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch caic/w7: %v\n%s", err, out)
+	}
+	cmd = exec.CommandContext(ctx, "git", "push", "md-abc123", "caic/w7")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git push md-abc123 caic/w7: %v\n%s", err, out)
 	}
 
-	n, err = MaxBranchSeqNum(ctx, dir)
+	// Delete all local branches so only remote refs remain.
+	for _, b := range []string{"caic/w0", "caic/w3", "caic/w7", "other/branch"} {
+		cmd := exec.CommandContext(ctx, "git", "branch", "-d", b) //nolint:gosec // test helper, args are constant.
+		cmd.Dir = clone
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git branch -d %s: %v\n%s", b, err, out)
+		}
+	}
+
+	// Must find caic/w7 even though it's on the md remote, not origin.
+	n, err = MaxBranchSeqNum(ctx, clone)
 	if err != nil {
 		t.Fatal(err)
 	}

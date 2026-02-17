@@ -80,23 +80,25 @@ func CheckoutBranch(ctx context.Context, dir, name string) error {
 	return nil
 }
 
-// MaxBranchSeqNum finds the highest sequence number N among branches matching
-// "caic/wN". Returns -1 if no matching branches exist.
+// MaxBranchSeqNum finds the highest sequence number N among remote branches
+// matching "caic/wN" across all remotes. Returns -1 if no matching branches
+// exist.
 func MaxBranchSeqNum(ctx context.Context, dir string) (int, error) {
-	cmd := exec.CommandContext(ctx, "git", "branch", "--list", "caic/w*", "--format=%(refname:short)")
+	cmd := exec.CommandContext(ctx, "git", "branch", "-r", "--format=%(refname:short)")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return -1, fmt.Errorf("git branch --list: %w", err)
+		return -1, fmt.Errorf("git branch -r: %w", err)
 	}
 	highest := -1
 	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "caic/w") {
+		// Match "<remote>/caic/wN" for any remote name.
+		_, after, ok := strings.Cut(line, "/caic/w")
+		if !ok {
 			continue
 		}
-		numStr := line[len("caic/w"):]
-		n, err := strconv.Atoi(numStr)
+		n, err := strconv.Atoi(after)
 		if err != nil {
 			continue
 		}
