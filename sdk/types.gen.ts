@@ -636,6 +636,7 @@ export interface UsageResp {
 export interface VoiceTokenResp {
   token: string;
   expiresAt: string;
+  ephemeral: boolean;
 }
 /**
  * EmptyReq is used for endpoints that take no request body.

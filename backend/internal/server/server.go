@@ -39,6 +39,20 @@ type repoInfo struct {
 	RepoURL    string // HTTPS browse URL derived from origin remote.
 }
 
+// CreateAuthTokenConfig is the request for POST /v1alpha/auth_tokens.
+// See https://github.com/googleapis/go-genai/blob/main/types.go
+type CreateAuthTokenConfig struct {
+	Uses                 int    `json:"uses"`
+	ExpireTime           string `json:"expireTime"`
+	NewSessionExpireTime string `json:"newSessionExpireTime"`
+}
+
+// AuthToken is the response from POST /v1alpha/auth_tokens.
+// See https://github.com/googleapis/go-genai/blob/main/types.go
+type AuthToken struct {
+	Name string `json:"name"`
+}
+
 // Server is the HTTP server for the caic web UI.
 type Server struct {
 	ctx      context.Context // server-lifetime context; outlives individual HTTP requests
@@ -681,10 +695,12 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 
 // getVoiceToken returns a Gemini API credential for the Android voice client.
 //
-// TODO(security): Restore ephemeral token creation once end-to-end voice is
-// validated. Currently returns the raw GEMINI_API_KEY directly so the client
-// can connect with ?key= instead of ?access_token=. This exposes the secret
-// to the client and MUST be reverted.
+// Currently returns the raw GEMINI_API_KEY (ephemeral=false) because the
+// v1alpha ephemeral endpoint produces lower-quality responses. The client uses
+// the ephemeral field to decide the WebSocket URL and auth parameter.
+//
+// TODO(security): Switch back to ephemeral tokens once v1beta supports
+// auth_tokens or v1alpha quality improves. See getVoiceTokenEphemeral.
 func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*dto.VoiceTokenResp, error) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
@@ -695,6 +711,74 @@ func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*dto.VoiceTo
 	return &dto.VoiceTokenResp{
 		Token:     apiKey,
 		ExpiresAt: expireTime,
+	}, nil
+}
+
+// getVoiceTokenEphemeral creates a short-lived Gemini ephemeral token via
+// POST /v1alpha/auth_tokens. Ephemeral tokens are v1alpha only; v1beta
+// returns 404. The client must use v1alpha + BidiGenerateContentConstrained
+// with ?access_token=.
+//
+// This path works but produces lower-quality voice responses than the v1beta
+// BidiGenerateContent endpoint with a raw key. Kept for future use once Google
+// stabilises v1beta ephemeral tokens.
+//
+// See https://ai.google.dev/gemini-api/docs/ephemeral-tokens
+func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*dto.VoiceTokenResp, error) { //nolint:unused // kept for future use
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return nil, dto.InternalError("GEMINI_API_KEY not configured")
+	}
+	slog.Info("voice token", "api_key_len", len(apiKey), "mode", "ephemeral") //nolint:gosec // structured logging, no injection
+	now := time.Now().UTC()
+	expireTime := now.Add(30 * time.Minute).Format(time.RFC3339)
+	newSessionExpire := now.Add(2 * time.Minute).Format(time.RFC3339)
+
+	reqBody := CreateAuthTokenConfig{
+		Uses:                 1,
+		ExpireTime:           expireTime,
+		NewSessionExpireTime: newSessionExpire,
+	}
+	bodyBytes, err := json.Marshal(&reqBody)
+	if err != nil {
+		return nil, dto.InternalError("failed to marshal token request").Wrap(err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://generativelanguage.googleapis.com/v1alpha/auth_tokens",
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, dto.InternalError("failed to create token request").Wrap(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
+
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL is a hardcoded constant
+	if err != nil {
+		return nil, dto.InternalError("failed to fetch ephemeral token").Wrap(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, dto.InternalError(fmt.Sprintf("Gemini auth_tokens returned %d: %s", resp.StatusCode, string(body)))
+	}
+
+	var tokenResp AuthToken
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, dto.InternalError("failed to decode token response").Wrap(err)
+	}
+
+	tokenPrefix := tokenResp.Name
+	if len(tokenPrefix) > 16 {
+		tokenPrefix = tokenPrefix[:16]
+	}
+	slog.Info("voice token", "token_prefix", tokenPrefix, "token_len", len(tokenResp.Name))
+
+	return &dto.VoiceTokenResp{
+		Token:     tokenResp.Name,
+		ExpiresAt: expireTime,
+		Ephemeral: true,
 	}, nil
 }
 

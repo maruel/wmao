@@ -119,16 +119,25 @@ class VoiceSessionManager @Inject constructor(
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")
-                // TODO(security): Switch back to v1alpha + BidiGenerateContentConstrained
-                // with ephemeral tokens (access_token param). Raw API keys require
-                // v1beta + BidiGenerateContent.
-                val wsUrl = Uri.Builder()
-                    .scheme("wss")
-                    .authority("generativelanguage.googleapis.com")
-                    .path("/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
-                    .appendQueryParameter("key", tokenResp.token)
-                    .build()
-                    .toString()
+                // Ephemeral tokens (v1alpha) use access_token + BidiGenerateContentConstrained.
+                // Raw API keys (v1beta) use key + BidiGenerateContent.
+                val wsUrl = if (tokenResp.ephemeral) {
+                    Uri.Builder()
+                        .scheme("wss")
+                        .authority("generativelanguage.googleapis.com")
+                        .path("/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained")
+                        .appendQueryParameter("access_token", tokenResp.token)
+                        .build()
+                        .toString()
+                } else {
+                    Uri.Builder()
+                        .scheme("wss")
+                        .authority("generativelanguage.googleapis.com")
+                        .path("/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
+                        .appendQueryParameter("key", tokenResp.token)
+                        .build()
+                        .toString()
+                }
 
                 val request = Request.Builder().url(wsUrl).build()
                 webSocket = client.newWebSocket(request, createWebSocketListener())

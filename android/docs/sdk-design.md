@@ -155,16 +155,18 @@ Callers branch on `code` (from `ErrorCodes`).
 
 ## Voice Token Endpoint (Backend)
 
-New backend endpoint that proxies ephemeral token creation from the Gemini API.
-The Gemini API key stays on the server; the app only receives short-lived tokens.
+Backend endpoint that returns a Gemini API credential for the voice client.
+The response includes an `ephemeral` flag that tells the client which WebSocket
+endpoint and auth parameter to use.
 
 ### Backend: `GET /api/v1/voice/token`
 
 Response:
 ```json
 {
-  "token": "auth_tokens/4969d96da97639001864...",
-  "expiresAt": "2025-06-15T12:30:00Z"
+  "token": "<api-key-or-ephemeral-token>",
+  "expiresAt": "2025-06-15T12:30:00Z",
+  "ephemeral": false
 }
 ```
 
@@ -173,21 +175,24 @@ Go types:
 type VoiceTokenResp struct {
     Token     string `json:"token"`
     ExpiresAt string `json:"expiresAt"`
+    Ephemeral bool   `json:"ephemeral"`
 }
 ```
 
-Backend implementation:
-1. Read Gemini API key from environment (`GEMINI_API_KEY`)
-2. POST to `https://generativelanguage.googleapis.com/v1alpha/auth_tokens`
-   with `x-goog-api-key` header (ephemeral tokens are **v1alpha only**;
-   `v1beta` returns 404)
-3. Request body: `{"uses": 1, "expireTime": "<now+30m>", "newSessionExpireTime": "<now+2m>"}` (flat, no `config` wrapper)
-4. Return the token name and expiry to the app
+**Current mode: raw key (`ephemeral: false`)**
 
-Add to `dto.Routes`:
-```go
-{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", RespType: "VoiceTokenResp"},
-```
+Returns the raw `GEMINI_API_KEY`. The client connects to
+`v1beta.GenerativeService.BidiGenerateContent` with `?key=`. This produces
+higher-quality voice responses but exposes the API key to the client.
+
+**Ephemeral mode (`ephemeral: true`) — disabled, kept for future use**
+
+Creates a short-lived token via POST `/v1alpha/auth_tokens` with
+`x-goog-api-key` header (ephemeral tokens are **v1alpha only**; `v1beta`
+returns 404). The client must connect to
+`v1alpha.GenerativeService.BidiGenerateContentConstrained` with
+`?access_token=`. This is more secure but currently produces lower-quality
+responses.
 
 Kotlin type (generated):
 ```kotlin
@@ -195,6 +200,7 @@ Kotlin type (generated):
 data class VoiceTokenResp(
     val token: String,
     val expiresAt: String,
+    val ephemeral: Boolean = false,
 )
 ```
 

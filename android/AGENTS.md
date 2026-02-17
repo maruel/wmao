@@ -57,30 +57,31 @@ Official docs:
 - https://ai.google.dev/api/live — WebSocket reference
 - https://ai.google.dev/gemini-api/docs/ephemeral-tokens — token provisioning
 
-### Ephemeral token flow
-
-The app never holds a long-lived API key. Instead:
+### Voice token flow
 
 1. Android calls `GET /api/v1/voice/token` on the caic backend.
-2. Backend creates a short-lived ephemeral token via
-   `POST https://generativelanguage.googleapis.com/v1alpha/auth_tokens`
-   (header `x-goog-api-key`). Tokens: `uses: 1`, 30 min expiry, 2 min
-   new-session window.
-3. Android opens a WebSocket with the token as a query parameter.
+2. Backend returns a token and an `ephemeral` boolean.
+3. Android picks the WebSocket URL and auth parameter based on `ephemeral`.
 
-### API versioning (v1alpha)
+The response's `ephemeral` field controls which path the client uses:
+
+| Mode | `ephemeral` | Token source | WebSocket endpoint | Auth param |
+|------|-------------|--------------|-------------------|------------|
+| Raw key (current) | `false` | `GEMINI_API_KEY` directly | `v1beta.GenerativeService.BidiGenerateContent` | `?key=` |
+| Ephemeral (disabled) | `true` | `POST /v1alpha/auth_tokens` | `v1alpha.GenerativeService.BidiGenerateContentConstrained` | `?access_token=` |
+
+### API versioning
+
+The raw key path uses **v1beta** + `BidiGenerateContent` and produces
+higher-quality voice responses.
 
 Ephemeral tokens are **v1alpha only** — both token creation and the
 WebSocket endpoint must use `v1alpha`. Using `v1beta` for `auth_tokens`
-returns 404. See https://ai.google.dev/gemini-api/docs/ephemeral-tokens.
+returns 404. The v1alpha path works but produces lower-quality responses.
+The ephemeral code is kept in the backend (`getVoiceTokenEphemeral`) for
+future use once Google stabilises v1beta ephemeral tokens.
 
-- Token endpoint: `POST /v1alpha/auth_tokens`
-- WebSocket URL (with ephemeral token):
-  `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained`
-- Auth: `?access_token=<token>` query param or `Authorization: Token <token>` header.
-
-The **non-ephemeral** Live API (direct API key) uses `v1beta` +
-`BidiGenerateContent`, but we don't use that path.
+See https://ai.google.dev/gemini-api/docs/ephemeral-tokens.
 
 ### Protocol notes
 

@@ -143,6 +143,7 @@ type UsageResp struct {
 type VoiceTokenResp struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expiresAt"`
+	Ephemeral bool   `json:"ephemeral"`
 }
 
 // EmptyReq is used for endpoints that take no request body.

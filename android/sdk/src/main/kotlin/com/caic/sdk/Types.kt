@@ -149,6 +149,7 @@ data class UsageResp(
 data class VoiceTokenResp(
     val token: String,
     val expiresAt: String,
+    val ephemeral: Boolean = false,
 )
 
 // Backend-neutral event types
