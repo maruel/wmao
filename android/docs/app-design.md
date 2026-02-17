@@ -270,6 +270,9 @@ multiple concurrent coding tasks by voice.
 You have tools to create tasks, send messages to agents, answer agent questions, check
 task status, sync changes, terminate tasks, and restart tasks.
 
+On connect, you will receive a bracketed summary of all current tasks. Use this to
+answer status questions immediately without calling list_tasks.
+
 Behavior guidelines:
 - Be concise. The user is often away from the screen.
 - Summarize task status: state, elapsed time, cost, what agent is doing.
@@ -283,21 +286,86 @@ Behavior guidelines:
 
 ### Function Declarations
 
-11 tools, all `NON_BLOCKING`:
+11 tools, all `NON_BLOCKING`. The `behavior` and `scheduling` fields are set per-tool in the
+setup message's `functionDeclarations` array (see
+[Live API Tools](https://ai.google.dev/gemini-api/docs/live-tools)):
 
-| Tool | Parameters | Scheduling | Purpose |
-|------|-----------|------------|---------|
-| `list_tasks` | — | `WHEN_IDLE` | Overview of all tasks |
-| `create_task` | prompt, repo, model?, harness? | `INTERRUPT` | Start new task |
-| `get_task_detail` | task_id | `WHEN_IDLE` | Recent activity for one task |
-| `send_message` | task_id, message | `INTERRUPT` | Send input to waiting agent |
-| `answer_question` | task_id, answer | `INTERRUPT` | Answer agent's question |
-| `sync_task` | task_id, force? | `INTERRUPT` | Push changes to remote |
-| `terminate_task` | task_id | `INTERRUPT` | Stop running task |
-| `restart_task` | task_id, prompt | `INTERRUPT` | Restart terminated task |
-| `get_usage` | — | `WHEN_IDLE` | Check quota utilization |
-| `set_active_task` | task_id | `SILENT` | Switch screen to task |
-| `list_repos` | — | `WHEN_IDLE` | Available repositories |
+| Tool | Parameters | Behavior | Scheduling | Purpose |
+|------|-----------|----------|------------|---------|
+| `list_tasks` | — | `NON_BLOCKING` | `WHEN_IDLE` | Overview of all tasks |
+| `create_task` | prompt, repo, model?, harness? | `NON_BLOCKING` | `INTERRUPT` | Start new task |
+| `get_task_detail` | task_id | `NON_BLOCKING` | `WHEN_IDLE` | Recent activity for one task |
+| `send_message` | task_id, message | `NON_BLOCKING` | `INTERRUPT` | Send input to waiting agent |
+| `answer_question` | task_id, answer | `NON_BLOCKING` | `INTERRUPT` | Answer agent's question |
+| `sync_task` | task_id, force? | `NON_BLOCKING` | `INTERRUPT` | Push changes to remote |
+| `terminate_task` | task_id | `NON_BLOCKING` | `INTERRUPT` | Stop running task |
+| `restart_task` | task_id, prompt | `NON_BLOCKING` | `INTERRUPT` | Restart terminated task |
+| `get_usage` | — | `NON_BLOCKING` | `WHEN_IDLE` | Check quota utilization |
+| `set_active_task` | task_id | `NON_BLOCKING` | `SILENT` | Switch screen to task |
+| `list_repos` | — | `NON_BLOCKING` | `WHEN_IDLE` | Available repositories |
+
+**Scheduling semantics** (from [Live API Tools](https://ai.google.dev/gemini-api/docs/live-tools)):
+- `INTERRUPT` — deliver result to user immediately, interrupting current output
+- `WHEN_IDLE` — deliver result after the current turn finishes
+- `SILENT` — use result without narrating it to the user
+
+**`behavior`** goes in the function declaration (setup message):
+
+```json
+{
+  "name": "list_tasks",
+  "description": "...",
+  "parameters": { ... },
+  "behavior": "NON_BLOCKING"
+}
+```
+
+**`scheduling`** goes **inside the `response` object** of each function response (not as a
+sibling to `id`/`name`):
+
+```json
+{
+  "id": "...",
+  "name": "list_tasks",
+  "response": { "tasks": [...], "scheduling": "WHEN_IDLE" }
+}
+```
+
+**`FunctionDeclaration` data class** carries both fields; `scheduling` is only used
+when building function responses, not the setup message:
+
+```kotlin
+data class FunctionDeclaration(
+    val name: String,
+    val description: String,
+    val parameters: JsonElement,
+    val behavior: String? = null,       // e.g. "NON_BLOCKING" — sent in setup
+    val scheduling: String? = null,     // e.g. "WHEN_IDLE" — sent in tool responses
+)
+```
+
+`buildSetupMessage()` in `VoiceSessionManager` includes `behavior` if non-null:
+
+```kotlin
+buildMap {
+    put("name", JsonPrimitive(fd.name))
+    put("description", JsonPrimitive(fd.description))
+    put("parameters", fd.parameters)
+    if (fd.behavior != null) put("behavior", JsonPrimitive(fd.behavior))
+}
+```
+
+`handleToolCall()` in `VoiceSessionManager` looks up `scheduling` from
+`functionScheduling` (a name→scheduling map built from `functionDeclarations`) and
+includes it in each function response if present:
+
+```kotlin
+// scheduling is injected into the response object itself
+val response = if (scheduling != null && result is JsonObject) {
+    JsonObject(result.toMutableMap().apply { put("scheduling", JsonPrimitive(scheduling)) })
+} else { result }
+JsonObject(mapOf("id" to JsonPrimitive(id), "name" to JsonPrimitive(name), "response" to response))
+```
 
 ### VoiceSessionManager
 
@@ -309,10 +377,65 @@ Owns Gemini Live session lifecycle. Bridges voice ↔ caic API.
 - `disconnect()` → stop session
 - Token refresh: re-fetch before `expireTime` if session is long-lived
 
+### `get_task_detail` Response Format
+
+`FunctionHandlers.handleGetTaskDetail()` currently returns the task's fields from
+`listTasks()`. The planned response shape (once `taskRawEvents()` is wired up) is:
+
+```json
+{
+  "task": {
+    "id": "abc123",
+    "state": "running",
+    "costUSD": 0.43,
+    "inputTokens": 10000,
+    "outputTokens": 2345,
+    "durationMs": 720000,
+    "repo": "my-repo",
+    "branch": "fix-auth-bug",
+    "error": "",
+    "result": ""
+  },
+  "recentEvents": [
+    { "kind": "text", "text": "Analyzing the auth module..." },
+    { "kind": "toolUse", "name": "Read", "input": { "file_path": "auth.go" } },
+    { "kind": "ask", "question": "Use JWT or sessions?", "options": ["JWT", "Sessions"] }
+  ]
+}
+```
+
+`recentEvents` comes from the task's SSE event stream (last ~20 events). Cap at 20 to
+keep response size reasonable for the live context window.
+
 ### Task Monitoring & Proactive Notifications
 
-`VoiceSessionManager.onTasksUpdated(tasks)` compares previous/current states.
-Injects bracketed text into Gemini session on transitions:
+`VoiceViewModel.notifyTaskChanges(tasks)` compares previous/current states and injects
+bracketed text into the Gemini session via `VoiceSessionManager.injectText()`.
+
+#### Initial Context Injection
+
+On the **first call after connect** (when `previousTaskStates` is empty and
+`voiceSessionManager.state.value.connected` just transitioned to `true`), inject a
+snapshot of all current tasks so Gemini starts with full situational awareness — no need
+to call `list_tasks` cold:
+
+```
+[Current tasks at session start]
+- fix-auth-bug (running, 12m, $0.43, claude)
+- add-pagination (asking, 5m, $0.12, gemini) — Question: "Should I use cursor or offset?"
+- update-deps (terminated, $0.08, claude) — Completed: "Updated all deps to latest"
+```
+
+Each line: `- <shortName> (<state>, <elapsed>, <cost>, <harness>)` with an optional
+suffix for `asking` (the question text) and `terminated` (the result summary).
+
+`VoiceViewModel` injects this snapshot in the `tasks.collect` block, guarded by
+`isFirstSnapshot`: set to `false` after the first injection so subsequent calls use
+diff-based notifications only.
+
+#### Subsequent Notifications (diff-based)
+
+State transition notifications for tasks already known to Gemini:
 
 - `asking` → `"[Task 'shortName' needs input] Question: ... Options: ..."`
 - `waiting` → `"[Task 'shortName' is waiting for input]"`
@@ -330,11 +453,13 @@ and short names from prompt. Ambiguous → Gemini asks conversationally.
 
 ```kotlin
 data class VoiceState(
+    val connectStatus: String? = null,
     val connected: Boolean = false,
     val listening: Boolean = false,
     val speaking: Boolean = false,
     val activeTool: String? = null,
     val error: String? = null,
+    val errorId: Long = 0,
 )
 ```
 
@@ -653,6 +778,7 @@ implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.28.0")
 ### Gemini Live API
 - [Live API overview](https://ai.google.dev/gemini-api/docs/live) — getting started, audio config, function calling
 - [WebSocket API reference](https://ai.google.dev/api/live) — full message schemas for `BidiGenerateContent`
+- [Live API Tools](https://ai.google.dev/gemini-api/docs/live-tools) — NON_BLOCKING behavior, scheduling hints
 - [Ephemeral tokens](https://ai.google.dev/gemini-api/docs/ephemeral-tokens) — creating and using short-lived tokens
 - [Live API on Android](https://developer.android.com/ai/gemini/live) — Android-specific guide (Firebase-based, for reference only)
 

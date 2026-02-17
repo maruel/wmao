@@ -6,8 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.caic.sdk.TaskJSON
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
+import com.fghbuild.caic.util.formatCost
+import com.fghbuild.caic.util.formatElapsed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -25,9 +29,24 @@ class VoiceViewModel @Inject constructor(
     private var previousTaskStates: Map<String, String> = emptyMap()
 
     init {
+        // Inject snapshot when the session transitions to connected.
+        viewModelScope.launch {
+            voiceSessionManager.state
+                .map { it.connected }
+                .distinctUntilChanged()
+                .collect { connected ->
+                    if (connected) {
+                        voiceSessionManager.injectText(buildSnapshot(taskRepository.tasks.value))
+                        previousTaskStates = taskRepository.tasks.value.associate { it.id to it.state }
+                    }
+                }
+        }
+        // Track state changes for diff-based notifications while connected.
         viewModelScope.launch {
             taskRepository.tasks.collect { tasks ->
-                notifyTaskChanges(tasks)
+                if (voiceSessionManager.state.value.connected) {
+                    notifyTaskChanges(tasks)
+                }
                 previousTaskStates = tasks.associate { it.id to it.state }
             }
         }
@@ -46,7 +65,6 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun notifyTaskChanges(tasks: List<TaskJSON>) {
-        if (!voiceSessionManager.state.value.connected) return
         tasks
             .filter { task ->
                 val prev = previousTaskStates[task.id]
@@ -59,6 +77,22 @@ class VoiceViewModel @Inject constructor(
                     voiceSessionManager.injectText(notification)
                 }
             }
+    }
+
+    private fun buildSnapshot(tasks: List<TaskJSON>): String {
+        if (tasks.isEmpty()) return "[No active tasks]"
+        val lines = tasks.joinToString("\n") { task ->
+            val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
+            val base = "- $shortName (${task.state}, ${formatElapsed(task.durationMs)}" +
+                ", ${formatCost(task.costUSD)}, ${task.harness})"
+            when {
+                task.state == "asking" -> "$base — needs input"
+                task.state == "terminated" && task.result != null ->
+                    "$base — Completed: ${task.result!!.take(RESULT_SNIPPET_MAX)}"
+                else -> base
+            }
+        }
+        return "[Current tasks at session start]\n$lines"
     }
 
     private fun buildNotification(task: TaskJSON, shortName: String): String? = when {
@@ -80,5 +114,6 @@ class VoiceViewModel @Inject constructor(
 
     companion object {
         private const val SHORT_NAME_MAX = 30
+        private const val RESULT_SNIPPET_MAX = 80
     }
 }

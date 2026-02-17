@@ -28,12 +28,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -47,6 +45,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "VoiceSession"
+private val functionScheduling: Map<String, String> =
+    functionDeclarations.mapNotNull { fd ->
+        fd.scheduling?.let { fd.name to it }
+    }.toMap()
 private const val RECORD_SAMPLE_RATE = 16000
 private const val PLAYBACK_SAMPLE_RATE = 24000
 private const val AUDIO_BUFFER_SIZE = 4096
@@ -207,32 +209,17 @@ class VoiceSessionManager @Inject constructor(
     }
 
     fun injectText(text: String) {
-        val msg = JsonObject(
-            mapOf(
-                "clientContent" to JsonObject(
-                    mapOf(
-                        "turns" to JsonArray(
-                            listOf(
-                                JsonObject(
-                                    mapOf(
-                                        "role" to JsonPrimitive("user"),
-                                        "parts" to JsonArray(
-                                            listOf(
-                                                JsonObject(
-                                                    mapOf("text" to JsonPrimitive(text))
-                                                )
-                                            )
-                                        ),
-                                    )
-                                )
-                            )
-                        ),
-                        "turnComplete" to JsonPrimitive(true),
-                    )
+        val clientContent = BidiGenerateContentClientContent(
+            turns = listOf(
+                Content(
+                    role = "user",
+                    parts = listOf(Part(text = text)),
                 )
-            )
+            ),
+            turnComplete = true,
         )
-        webSocket?.send(json.encodeToString(JsonElement.serializer(), msg))
+        webSocket?.send(json.encodeToString(BidiGenerateContentClientContent.serializer(), clientContent)
+            .wrapTopLevel("clientContent"))
     }
 
     private fun sendSetupMessage(voiceName: String) {
@@ -242,80 +229,41 @@ class VoiceSessionManager @Inject constructor(
     }
 
     private fun buildSetupMessage(voiceName: String): String {
-        val toolDecls = functionDeclarations.map { fd ->
-            JsonObject(
-                mapOf(
-                    "name" to JsonPrimitive(fd.name),
-                    "description" to JsonPrimitive(fd.description),
-                    "parameters" to fd.parameters,
-                )
-            )
-        }
-        val setup = JsonObject(
-            mapOf(
-                "setup" to JsonObject(
-                    mapOf(
-                        "model" to JsonPrimitive(MODEL_NAME),
-                        "generationConfig" to buildGenerationConfig(voiceName),
-                        "realtimeInputConfig" to buildRealtimeInputConfig(),
-                        "systemInstruction" to buildSystemInstruction(),
-                        "tools" to JsonArray(
-                            listOf(
-                                JsonObject(
-                                    mapOf(
-                                        "functionDeclarations" to JsonArray(toolDecls)
-                                    )
-                                )
-                            )
-                        ),
+        val setup = BidiGenerateContentSetup(
+            model = MODEL_NAME,
+            generationConfig = GenerationConfig(
+                responseModalities = listOf(ResponseModality.AUDIO),
+                speechConfig = SpeechConfig(
+                    voiceConfig = VoiceConfig(
+                        prebuiltVoiceConfig = PrebuiltVoiceConfig(voiceName = voiceName),
                     )
-                )
-            )
-        )
-        return json.encodeToString(JsonElement.serializer(), setup)
-    }
-
-    private fun buildGenerationConfig(voiceName: String): JsonElement = JsonObject(
-        mapOf(
-            "responseModalities" to JsonArray(listOf(JsonPrimitive("AUDIO"))),
-            "speechConfig" to JsonObject(
-                mapOf(
-                    "voiceConfig" to JsonObject(
-                        mapOf(
-                            "prebuiltVoiceConfig" to JsonObject(
-                                mapOf("voiceName" to JsonPrimitive(voiceName))
-                            )
+                ),
+            ),
+            realtimeInputConfig = RealtimeInputConfig(
+                automaticActivityDetection = AutomaticActivityDetection(
+                    startOfSpeechSensitivity = StartSensitivity.HIGH,
+                ),
+                activityHandling = ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+            ),
+            systemInstruction = Content(
+                parts = listOf(Part(text = SYSTEM_INSTRUCTION)),
+            ),
+            tools = listOf(
+                Tool(
+                    functionDeclarations = functionDeclarations.map { fd ->
+                        LiveFunctionDeclaration(
+                            name = fd.name,
+                            description = fd.description,
+                            parameters = fd.parameters,
+                            behavior = fd.behavior,
                         )
-                    )
+                    }
                 )
             ),
         )
-    )
-
-    private fun buildRealtimeInputConfig(): JsonElement = JsonObject(
-        mapOf(
-            "automaticActivityDetection" to JsonObject(
-                mapOf(
-                    "startOfSpeechSensitivity" to JsonPrimitive(
-                        "START_SENSITIVITY_HIGH"
-                    ),
-                )
-            ),
-            "activityHandling" to JsonPrimitive("START_OF_ACTIVITY_INTERRUPTS"),
-        )
-    )
-
-    private fun buildSystemInstruction(): JsonElement = JsonObject(
-        mapOf(
-            "parts" to JsonArray(
-                listOf(
-                    JsonObject(
-                        mapOf("text" to JsonPrimitive(SYSTEM_INSTRUCTION))
-                    )
-                )
-            )
-        )
-    )
+        return json.encodeToString(BidiGenerateContentSetup.serializer(), setup)
+            .wrapTopLevel("setup")
+    }
 
     private fun createWebSocketListener() = object : WebSocketListener() {
         /** Ignore callbacks from WebSockets we already replaced or disconnected. */
@@ -391,10 +339,18 @@ class VoiceSessionManager @Inject constructor(
                     startAudio()
                 }
                 "serverContent" in msg -> {
-                    handleServerContent(msg["serverContent"]!!.jsonObject)
+                    val serverContent = json.decodeFromJsonElement(
+                        BidiGenerateContentServerContent.serializer(),
+                        msg["serverContent"]!!,
+                    )
+                    handleServerContent(serverContent)
                 }
                 "toolCall" in msg -> {
-                    handleToolCall(msg["toolCall"]!!.jsonObject)
+                    val toolCall = json.decodeFromJsonElement(
+                        BidiGenerateContentToolCall.serializer(),
+                        msg["toolCall"]!!,
+                    )
+                    handleToolCall(toolCall)
                 }
                 "toolCallCancellation" in msg -> {
                     _state.update { it.copy(activeTool = null) }
@@ -417,56 +373,41 @@ class VoiceSessionManager @Inject constructor(
         }
     }
 
-    private fun handleServerContent(content: JsonObject) {
-        val parts = content["modelTurn"]?.jsonObject
-            ?.get("parts")?.jsonArray
-        parts?.forEach { part ->
-            val inlineData = part.jsonObject["inlineData"]?.jsonObject
+    private fun handleServerContent(content: BidiGenerateContentServerContent) {
+        content.modelTurn?.parts?.forEach { part ->
+            val inlineData = part.inlineData
             if (inlineData != null) {
-                val data = inlineData["data"]
-                    ?.jsonPrimitive?.content ?: return@forEach
-                val pcmBytes = Base64.decode(data, Base64.NO_WRAP)
+                val pcmBytes = Base64.decode(inlineData.data, Base64.NO_WRAP)
                 playAudio(pcmBytes)
                 _state.update { it.copy(speaking = true) }
             }
         }
-        val turnComplete = content["turnComplete"]
-            ?.jsonPrimitive?.booleanOrNull
-        if (turnComplete == true) {
+        if (content.turnComplete == true) {
             _state.update { it.copy(speaking = false) }
         }
     }
 
-    private suspend fun handleToolCall(toolCall: JsonObject) {
-        val functionCalls = toolCall["functionCalls"]?.jsonArray ?: return
-        val responses = functionCalls.mapNotNull { fc ->
-            val fcObj = fc.jsonObject
-            val name = fcObj["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val id = fcObj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val args = fcObj["args"]?.jsonObject ?: JsonObject(emptyMap())
-
-            _state.update { it.copy(activeTool = name) }
-            val result = functionHandlers?.handle(name, args) ?: errorJson("No handler")
+    private suspend fun handleToolCall(toolCall: BidiGenerateContentToolCall) {
+        val responses = toolCall.functionCalls.mapNotNull { fc ->
+            val scheduling = functionScheduling[fc.name]
+            _state.update { it.copy(activeTool = fc.name) }
+            val result = functionHandlers?.handle(fc.name, fc.args) ?: errorJson("No handler")
             _state.update { it.copy(activeTool = null) }
 
-            JsonObject(
-                mapOf(
-                    "id" to JsonPrimitive(id),
-                    "name" to JsonPrimitive(name),
-                    "response" to result,
-                )
-            )
+            val response = if (scheduling != null && result is JsonObject) {
+                JsonObject(result.toMutableMap().apply {
+                    put("scheduling", JsonPrimitive(scheduling))
+                })
+            } else {
+                result
+            }
+            FunctionResponse(id = fc.id, name = fc.name, response = response)
         }
-        val responseMsg = JsonObject(
-            mapOf(
-                "toolResponse" to JsonObject(
-                    mapOf(
-                        "functionResponses" to JsonArray(responses),
-                    )
-                )
-            )
+        val toolResponse = BidiGenerateContentToolResponse(functionResponses = responses)
+        webSocket?.send(
+            json.encodeToString(BidiGenerateContentToolResponse.serializer(), toolResponse)
+                .wrapTopLevel("toolResponse")
         )
-        webSocket?.send(json.encodeToString(JsonElement.serializer(), responseMsg))
     }
 
     @SuppressLint("MissingPermission")
@@ -551,23 +492,16 @@ class VoiceSessionManager @Inject constructor(
 
     private fun sendAudioChunk(pcmBytes: ByteArray) {
         val encoded = Base64.encodeToString(pcmBytes, Base64.NO_WRAP)
-        val msg = JsonObject(
-            mapOf(
-                "realtimeInput" to JsonObject(
-                    mapOf(
-                        "audio" to JsonObject(
-                            mapOf(
-                                "mimeType" to JsonPrimitive(
-                                    "audio/pcm;rate=$RECORD_SAMPLE_RATE"
-                                ),
-                                "data" to JsonPrimitive(encoded),
-                            )
-                        )
-                    )
-                )
+        val realtimeInput = BidiGenerateContentRealtimeInput(
+            audio = Blob(
+                mimeType = "audio/pcm;rate=$RECORD_SAMPLE_RATE",
+                data = encoded,
             )
         )
-        webSocket?.send(json.encodeToString(JsonElement.serializer(), msg))
+        webSocket?.send(
+            json.encodeToString(BidiGenerateContentRealtimeInput.serializer(), realtimeInput)
+                .wrapTopLevel("realtimeInput")
+        )
     }
 
     private fun playAudio(pcmBytes: ByteArray) {
@@ -576,20 +510,35 @@ class VoiceSessionManager @Inject constructor(
 
     companion object {
         private const val SYSTEM_INSTRUCTION =
-            "You are a voice assistant for caic, a system that manages AI coding agents " +
-                "(Claude Code, Gemini CLI) running in containers. The user is a software " +
-                "engineer who controls multiple concurrent coding tasks by voice.\n\n" +
-                "You have tools to create tasks, send messages to agents, answer agent " +
-                "questions, check task status, sync changes, terminate tasks, and restart " +
-                "tasks.\n\n" +
-                "Behavior guidelines:\n" +
+            "You are a voice assistant for caic, a system for managing AI coding agents.\n\n" +
+                "## What caic does\n" +
+                "caic runs coding agents (Claude Code, Gemini CLI) inside isolated containers " +
+                "on a remote server. Each agent works autonomously on a git branch, writing " +
+                "code, running tests, and committing changes. The user is a software engineer " +
+                "who supervises multiple agents concurrently — often while away from the " +
+                "screen — and controls them by voice.\n\n" +
+                "## Task lifecycle\n" +
+                "A task has a prompt (what to build), a repo, a branch, and a state:\n" +
+                "- running: agent is actively working\n" +
+                "- asking: agent needs the user to answer a question before it can continue\n" +
+                "- waiting: agent is paused, waiting for user input or a message\n" +
+                "- terminated: agent finished; result contains the outcome summary\n" +
+                "- failed: agent crashed or was aborted; error contains the reason\n\n" +
+                "## Context you have\n" +
+                "At session start you receive a snapshot of all current tasks. Use it to " +
+                "answer questions about task status without calling list_tasks first. Call " +
+                "get_task_detail when the user asks for specifics (recent events, diffs).\n\n" +
+                "## Tools available\n" +
+                "create_task, list_tasks, get_task_detail, send_message, answer_question, " +
+                "sync_task, terminate_task, restart_task, set_active_task.\n\n" +
+                "## Behavior guidelines\n" +
                 "- Be concise. The user is often away from the screen.\n" +
-                "- Summarize task status: state, elapsed time, cost, what agent is doing.\n" +
-                "- When agent asks a question, read question and options clearly. Wait for " +
-                "verbal answer, then call answer_question.\n" +
+                "- Summarize task status: state, elapsed time, cost, what the agent is doing.\n" +
+                "- When an agent is asking, read the question and options clearly, wait for " +
+                "the verbal answer, then call answer_question.\n" +
                 "- Confirm repo and prompt before creating a task.\n" +
-                "- Refer to tasks by short name (first few words of prompt).\n" +
-                "- Proactively notify when tasks finish or need input.\n" +
+                "- Refer to tasks by short name (first few words of the prompt).\n" +
+                "- Proactively notify the user when tasks finish or need input.\n" +
                 "- For safety issues during sync, describe each issue and ask whether to force."
     }
 }
@@ -606,3 +555,6 @@ data class VoiceState(
 
 private fun errorJson(message: String): JsonElement =
     JsonObject(mapOf("error" to JsonPrimitive(message)))
+
+/** Wraps a serialized JSON object as a top-level discriminated message: {"key": {...}}. */
+private fun String.wrapTopLevel(key: String): String = """{"$key":$this}"""

@@ -14,6 +14,8 @@ data class FunctionDeclaration(
     val name: String,
     val description: String,
     val parameters: JsonElement,
+    val behavior: String? = null,
+    val scheduling: String? = null,
 )
 
 // Schema builder helpers.
@@ -57,6 +59,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         name = "list_tasks",
         description = "List all current coding tasks with their status, cost, and duration.",
         parameters = emptyObjectSchema,
+        behavior = "NON_BLOCKING",
+        scheduling = "WHEN_IDLE",
     ),
     FunctionDeclaration(
         name = "create_task",
@@ -68,6 +72,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "harness" to stringProp("Agent harness: 'claude' or 'gemini' (default: claude)"),
             required = listOf("prompt", "repo"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "get_task_detail",
@@ -76,6 +82,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "task_id" to stringProp("The task ID"),
             required = listOf("task_id"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "WHEN_IDLE",
     ),
     FunctionDeclaration(
         name = "send_message",
@@ -85,6 +93,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "message" to stringProp("The message to send to the agent"),
             required = listOf("task_id", "message"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "answer_question",
@@ -94,6 +104,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "answer" to stringProp("The answer to the agent's question"),
             required = listOf("task_id", "answer"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "sync_task",
@@ -103,6 +115,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "force" to boolProp("Force sync even with safety issues"),
             required = listOf("task_id"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "terminate_task",
@@ -111,6 +125,8 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "task_id" to stringProp("The task ID"),
             required = listOf("task_id"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "restart_task",
@@ -120,11 +136,15 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "prompt" to stringProp("New prompt for the restarted task"),
             required = listOf("task_id", "prompt"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "get_usage",
         description = "Check current API quota utilization and limits.",
         parameters = emptyObjectSchema,
+        behavior = "NON_BLOCKING",
+        scheduling = "WHEN_IDLE",
     ),
     FunctionDeclaration(
         name = "set_active_task",
@@ -133,10 +153,14 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "task_id" to stringProp("The task ID to display"),
             required = listOf("task_id"),
         ),
+        behavior = "NON_BLOCKING",
+        scheduling = "SILENT",
     ),
     FunctionDeclaration(
         name = "list_repos",
         description = "List available git repositories.",
         parameters = emptyObjectSchema,
+        behavior = "NON_BLOCKING",
+        scheduling = "WHEN_IDLE",
     ),
 )
