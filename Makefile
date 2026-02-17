@@ -16,7 +16,7 @@ help:
 	@echo "  make git-hooks      - Install git pre-commit hooks"
 	@echo "  make frontend-dev   - Run frontend dev server (http://localhost:5173)"
 	@echo "  make android-build  - Build Android app (debug APK)"
-	@echo "  make android-push   - Build and install APK on connected device"
+	@echo "  make android-push   - Build, install, and start APK on connected device"
 	@echo "  make android-test   - Run Android unit tests"
 	@echo "  make lint-android   - Run Android linters (detekt + lint)"
 	@echo "  make upgrade        - Upgrade Go and pnpm dependencies"
@@ -72,6 +72,7 @@ android-build:
 
 android-push: android-build
 	@adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+	@adb shell am start -n com.fghbuild.caic/.MainActivity
 
 android-test:
 	@cd android && ./gradlew test
