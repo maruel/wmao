@@ -62,8 +62,35 @@ export default function TaskView(props: Props) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [safetyIssues, setSafetyIssues] = createSignal<SafetyIssue[]>([]);
 
+  // Auto-scroll: keep scrolled to bottom unless the user scrolled up.
+  let messageAreaRef: HTMLDivElement | undefined;
+  let userScrolledUp = false;
+
+  function isNearBottom(el: HTMLElement): boolean {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }
+
+  function handleScroll() {
+    if (!messageAreaRef) return;
+    userScrolledUp = !isNearBottom(messageAreaRef);
+  }
+
+  function scrollToBottom() {
+    if (messageAreaRef && !userScrolledUp) {
+      messageAreaRef.scrollTop = messageAreaRef.scrollHeight;
+    }
+  }
+
+  // Scroll to bottom whenever messages change, if the user hasn't scrolled up.
+  createEffect(() => {
+    messages(); // track dependency
+    // Use requestAnimationFrame so the DOM has updated before we measure.
+    requestAnimationFrame(scrollToBottom);
+  });
+
   createEffect(() => {
     const id = props.taskId;
+    userScrolledUp = false;
 
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -199,7 +226,7 @@ export default function TaskView(props: Props) {
         </Show>
         {props.children}
       </div>
-      <div class={styles.messageArea}>
+      <div class={styles.messageArea} ref={messageAreaRef} onScroll={handleScroll}>
         {(() => {
           const grouped = createMemo(() => groupMessages(messages()));
           const turns = createMemo(() => groupTurns(grouped()));
