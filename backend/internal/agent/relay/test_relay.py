@@ -75,7 +75,10 @@ def test_close_stdin_sentinel():
         proc.stdin.flush()
         time.sleep(0.3)
 
-        # Close stdin — triggers null-byte sentinel.
+        # Send explicit null-byte sentinel, then close stdin.
+        # The relay no longer infers shutdown from stdin EOF alone.
+        proc.stdin.write(b"\x00")
+        proc.stdin.flush()
         proc.stdin.close()
 
         # Attach client should exit, then daemon should exit (subprocess gets EOF).
@@ -91,6 +94,70 @@ def test_close_stdin_sentinel():
             proc.kill()
         except OSError:
             pass
+        _cleanup(relay_dir)
+
+
+def test_stdin_eof_keeps_subprocess():
+    """Closing attach client's stdin (without null byte) must NOT close
+    proc.stdin — the subprocess stays alive. This simulates an SSH drop
+    where the attach client sees EOF on stdin."""
+    relay_dir = tempfile.mkdtemp(prefix="caic-relay-test-")
+    sock_path = os.path.join(relay_dir, "relay.sock")
+    pid_path = os.path.join(relay_dir, "pid")
+    env = _make_env(relay_dir)
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, RELAY_PY, "serve-attach", "--dir", relay_dir, "--", "cat"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+
+        # Send data.
+        proc.stdin.write(b"test\n")
+        proc.stdin.flush()
+        time.sleep(0.3)
+
+        # Close stdin WITHOUT sending null byte — simulates SSH drop at the
+        # attach_client level (stdin EOF without sentinel).
+        proc.stdin.close()
+
+        # Attach client should exit.
+        proc.wait(timeout=10)
+
+        # Relay daemon should still be running.
+        _wait_for_socket(sock_path, timeout=3)
+
+        # Reconnect and verify subprocess is alive.
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.connect(sock_path)
+        hs = json.dumps({"offset": 0}) + "\n"
+        conn.sendall(hs.encode())
+        time.sleep(0.3)
+        data = conn.recv(65536)
+        assert b"test\n" in data, f"expected replayed 'test\\n', got: {data!r}"
+
+        # Send null byte to trigger graceful shutdown.
+        conn.sendall(b"\x00")
+        conn.close()
+
+        # Wait for daemon to exit.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if not os.path.exists(pid_path):
+                break
+            try:
+                with open(pid_path) as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("relay daemon did not exit")
+    finally:
         _cleanup(relay_dir)
 
 
@@ -161,6 +228,10 @@ def test_ssh_drop_keeps_subprocess():
 if __name__ == "__main__":
     print("test_close_stdin_sentinel...", end=" ", flush=True)
     test_close_stdin_sentinel()
+    print("OK")
+
+    print("test_stdin_eof_keeps_subprocess...", end=" ", flush=True)
+    test_stdin_eof_keeps_subprocess()
     print("OK")
 
     print("test_ssh_drop_keeps_subprocess...", end=" ", flush=True)

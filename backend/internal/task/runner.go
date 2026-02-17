@@ -288,12 +288,17 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	return h, nil
 }
 
-// Cleanup is the single shutdown path for a task. It detaches the session,
-// performs graceful shutdown, kills the container, and returns the result.
+// Cleanup is the single shutdown path for a task (Flow 1 in the relay
+// shutdown protocol — see package agent). It sends the null-byte sentinel
+// to trigger graceful agent exit, then kills the container.
+//
+// This is only called for intentional termination (user action or container
+// death), never during backend restart. On restart, the relay daemon stays
+// alive and the server reconnects via adoptOne → Reconnect.
 //
 // Steps:
 //  1. Detach the session handle from the task.
-//  2. If a session exists: close stdin, wait up to 10s for graceful exit.
+//  2. If a session exists: Session.Close sends \x00 + closes stdin, wait up to 10s.
 //  3. Set task state to reason (StateTerminated or StateFailed).
 //  4. Kill the container.
 //  5. If graceful wait timed out, drain session now (container dead, SSH severed).

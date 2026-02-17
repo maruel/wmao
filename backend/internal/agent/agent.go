@@ -1,5 +1,24 @@
 // Package agent defines shared types and infrastructure for coding agent
 // backends. Backend implementations live in sub-packages (e.g. agent/claude).
+//
+// # Relay shutdown protocol
+//
+// Each agent runs inside a container behind a relay daemon (relay.py) that
+// survives SSH disconnects. Graceful shutdown uses a null-byte (\x00)
+// sentinel written to stdin:
+//
+// Flow 1 — One task is terminated (user action or container death):
+//
+//	Server calls Runner.Cleanup → Session.Close writes \x00 → attach_client
+//	forwards it through the Unix socket → relay daemon closes proc.stdin →
+//	agent exits → server kills the container.
+//
+// Flow 2 — Backend restarts (upgrade, crash):
+//
+//	SSH connections are severed → attach_client sees stdin EOF and disconnects
+//	(no \x00 sent) → relay daemon + agent keep running → on restart, server
+//	discovers the container via adoptOne(), reads output.jsonl to restore
+//	conversation state, and calls relay.py attach --offset N to reconnect.
 package agent
 
 import (
@@ -15,6 +34,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/maruel/caic/backend/internal/agent/relay"
 )
@@ -117,9 +137,27 @@ func (s *Session) Send(prompt string) error {
 	return s.wire.WritePrompt(s.stdin, prompt, s.logW)
 }
 
-// Close closes stdin so the agent process can exit. Idempotent.
+// Close sends the null-byte sentinel to the relay daemon (triggering graceful
+// subprocess shutdown) and then closes stdin. Idempotent.
+//
+// The sentinel must be written explicitly here rather than inferred from stdin
+// EOF in the attach client, because EOF also occurs on SSH drops and backend
+// restarts where the container should keep running.
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
+		// Best-effort write with timeout — the pipe may already be broken
+		// or blocked (e.g. the SSH process is gone).
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = s.stdin.Write([]byte{0})
+		}()
+		t := time.NewTimer(2 * time.Second)
+		select {
+		case <-done:
+			t.Stop()
+		case <-t.C:
+		}
 		_ = s.stdin.Close()
 	})
 }

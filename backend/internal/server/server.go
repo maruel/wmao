@@ -998,8 +998,9 @@ func (s *Server) cleanupTask(entry *taskEntry, runner *task.Runner, reason task.
 }
 
 // watchSession monitors a single active session. When the session's SSH
-// process exits, it transitions the task to StateWaiting (the container may
-// still be alive). If entry.done fires first, the goroutine exits silently.
+// process exits, it transitions the task to StateWaiting (the container and
+// relay daemon may still be alive — see Flow 2 in the relay shutdown protocol
+// in package agent). If entry.done fires first, the goroutine exits silently.
 func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.SessionHandle) {
 	_ = runner // kept for interface consistency; may be used for future auto-reconnect
 	go func() {

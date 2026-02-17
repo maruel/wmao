@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
-# Persistent relay for claude processes inside caic containers.
+# Persistent relay for coding agent processes inside caic containers.
 #
-# Two modes:
-#   serve-attach -- <cmd...>   Start relay server + attach as first client.
-#   attach [--offset N]        Reconnect to an existing relay server.
+# Modes:
+#   serve-attach --dir <path> -- <cmd...>   Start relay daemon + attach as first client.
+#   attach [--offset N]                     Reconnect to a running relay daemon.
+#   read-plan [path]                        Read a plan file from the container.
 #
-# The relay server owns the subprocess stdin/stdout, logs all I/O to a
-# file (output.jsonl), and accepts client connections via a Unix socket.
-# When a client disconnects (SSH drops), the subprocess keeps running.
+# The relay daemon owns the subprocess stdin/stdout, logs all I/O to
+# output.jsonl, and accepts one client at a time via a Unix socket.
+#
+# Shutdown protocol — null-byte sentinel:
+#   The Go backend (Session.Close) writes a \x00 byte to stdin *before*
+#   closing it. The attach_client forwards this through the socket to the
+#   daemon, which closes proc.stdin, letting the agent exit gracefully.
+#
+#   Crucially, stdin EOF alone does NOT trigger shutdown. This is what
+#   distinguishes the two flows below.
+#
+# Flow 1 — One task is terminated (user clicks "terminate"):
+#   1. Server calls Runner.Cleanup → Session.Close
+#   2. Session.Close writes \x00 then closes stdin
+#   3. attach_client forwards \x00 through the socket, then disconnects
+#   4. Relay daemon receives \x00, closes proc.stdin
+#   5. Agent emits final ResultMessage and exits (code=0)
+#   6. Server waits up to 10s for exit, then kills the container
+#
+# Flow 2 — Backend restarts (upgrade, crash):
+#   1. SSH connections are severed, attach_client sees stdin EOF
+#   2. attach_client disconnects from the socket (no \x00 sent)
+#   3. Relay daemon stays alive, subprocess keeps running
+#   4. On restart, server discovers the container via adoptOne()
+#   5. Server reads output.jsonl to restore conversation state
+#   6. Server calls relay.py attach --offset N to reconnect
+#   7. Task resumes seamlessly with zero message loss
 
 import json
 import logging
@@ -88,6 +113,7 @@ def serve(cmd_args, work_dir):
         f.write(str(os.getpid()))
 
     logging.info("relay daemon started pid=%d cmd=%s cwd=%s", os.getpid(), cmd_args, work_dir)
+    _start_time = time.monotonic()
 
     # Start the subprocess in the working directory that contains the git
     # repository so the harness (claude, gemini) picks up the right project.
@@ -106,12 +132,15 @@ def serve(cmd_args, work_dir):
     # Track connected client (at most one at a time).
     client_lock = threading.Lock()
     client_conn = [None]  # mutable ref in list
+    client_id = [0]  # monotonic client counter
+    stdin_closed = [False]  # True once proc.stdin has been closed
 
-    def set_client(conn):
+    def set_client(conn, reason=""):
         with client_lock:
             old = client_conn[0]
             client_conn[0] = conn
             if old is not None:
+                logging.info("client #%d disconnected reason=%s", client_id[0], reason)
                 try:
                     old.close()
                 except OSError:
@@ -140,10 +169,11 @@ def serve(cmd_args, work_dir):
         except (OSError, ValueError) as e:
             logging.warning("reader_thread error: %s", e)
         finally:
+            sz = output_file.tell() if not output_file.closed else -1
             output_file.close()
             # Process exited — close client.
-            set_client(None)
-            logging.info("reader_thread exited")
+            set_client(None, "subprocess_eof")
+            logging.info("reader_thread exited output_bytes=%d", sz)
 
     t = threading.Thread(target=reader_thread, daemon=True)
     t.start()
@@ -183,16 +213,25 @@ def serve(cmd_args, work_dir):
                 conn.close()
                 continue
 
-            set_client(conn)
-            logging.info("client connected offset=%d", offset)
+            client_id[0] += 1
+            cid = client_id[0]
+            set_client(conn, "replaced")
+            logging.info(
+                "client #%d connected offset=%d stdin_closed=%s proc_alive=%s",
+                cid,
+                offset,
+                stdin_closed[0],
+                proc.poll() is None,
+            )
 
             # Thread: read client stdin → subprocess stdin + log.
-            def client_reader(c):
+            def client_reader(c, cid=cid):
                 close_stdin = False
                 try:
                     while True:
                         data = c.recv(BUF_SIZE)
                         if not data:
+                            logging.info("client #%d recv returned empty (EOF/disconnect)", cid)
                             break
                         # A null byte signals the client wants proc.stdin closed
                         # (graceful termination). Strip it and set the flag.
@@ -209,14 +248,18 @@ def serve(cmd_args, work_dir):
                         proc.stdin.flush()
                         output_file.write(data)
                         output_file.flush()
-                except (OSError, BrokenPipeError, ValueError):
-                    pass
+                except (OSError, BrokenPipeError, ValueError) as e:
+                    logging.info("client #%d reader error: %s", cid, e)
                 if close_stdin:
-                    logging.info("client requested stdin close")
-                    try:
-                        proc.stdin.close()
-                    except OSError:
-                        pass
+                    if stdin_closed[0]:
+                        logging.warning("client #%d requested stdin close but stdin already closed", cid)
+                    else:
+                        stdin_closed[0] = True
+                        logging.info("client #%d requested stdin close", cid)
+                        try:
+                            proc.stdin.close()
+                        except OSError:
+                            pass
 
             ct = threading.Thread(target=client_reader, args=(conn,), daemon=True)
             ct.start()
@@ -226,7 +269,8 @@ def serve(cmd_args, work_dir):
 
     # Wait for subprocess to exit.
     proc.wait()
-    logging.info("subprocess exited code=%d", proc.returncode)
+    elapsed = time.monotonic() - _start_time
+    logging.info("subprocess exited code=%d stdin_closed=%s elapsed=%.0fs", proc.returncode, stdin_closed[0], elapsed)
     t.join(timeout=5)
 
     # Clean up.
@@ -272,16 +316,15 @@ def attach_client(offset):
     t.start()
 
     # Main thread: stdin → socket.
+    # The null byte sentinel for graceful shutdown is written by the Go
+    # backend *before* closing stdin, so it arrives through the normal data
+    # path. We must NOT inject a synthetic null byte on stdin EOF because
+    # EOF also happens on SSH drops / backend restarts where the container
+    # should keep running.
     try:
         while True:
             data = sys.stdin.buffer.read1(BUF_SIZE)
             if not data:
-                # Stdin closed — send null byte to tell the relay daemon to
-                # close proc.stdin (graceful termination).
-                try:
-                    conn.sendall(b"\x00")
-                except OSError:
-                    pass
                 break
             conn.sendall(data)
     except (OSError, BrokenPipeError, ValueError, KeyboardInterrupt):
