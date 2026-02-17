@@ -47,7 +47,7 @@ func mainImpl() error {
 		if len(suffix) > 4 {
 			suffix = suffix[len(suffix)-4:]
 		}
-		slog.Info("GEMINI_API_KEY configured", "suffix", suffix)
+		slog.Info("GEMINI_API_KEY configured", "suffix", suffix) //nolint:gosec // G706: suffix is at most 4 chars, structured log attribute
 	} else {
 		slog.Warn("GEMINI_API_KEY not set")
 	}
