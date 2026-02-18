@@ -137,7 +137,7 @@ class FunctionHandlers(
 
     private suspend fun handleGetUsage(): JsonElement {
         val usage = apiClient.getUsage()
-        fun pct(v: Double) = "${(v * 100).toInt()}%"
+        fun pct(v: Double) = "${v.toInt()}%"
         val summary = buildString {
             appendLine("5-hour window: ${pct(usage.fiveHour.utilization)} used, resets ${usage.fiveHour.resetsAt}")
             append("7-day window: ${pct(usage.sevenDay.utilization)} used, resets ${usage.sevenDay.resetsAt}")
