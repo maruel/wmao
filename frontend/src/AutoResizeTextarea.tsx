@@ -12,6 +12,7 @@ interface Props {
   class?: string;
   ref?: (el: HTMLTextAreaElement) => void;
   tabIndex?: number;
+  "data-testid"?: string;
 }
 
 export default function AutoResizeTextarea(props: Props) {
@@ -36,6 +37,7 @@ export default function AutoResizeTextarea(props: Props) {
       disabled={props.disabled}
       class={props.class}
       tabIndex={props.tabIndex}
+      data-testid={props["data-testid"]}
       rows={1}
       style={{ "field-sizing": "content" }}
     />

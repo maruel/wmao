@@ -5,13 +5,13 @@ test("create task, verify streaming text and result, then terminate", async ({ p
   await page.goto("/");
 
   // Wait for repos to load (select gets an option).
-  await expect(page.locator("select option")).not.toHaveCount(0);
+  await expect(page.getByTestId("repo-select").locator("option")).not.toHaveCount(0);
 
   // Use a unique prompt to avoid collisions with parallel tests.
   const prompt = `e2e lifecycle ${Date.now()}`;
 
   // Fill prompt and submit.
-  await page.fill('textarea[placeholder="Describe a task..."]', prompt);
+  await page.getByTestId("prompt-input").fill(prompt);
   await page.getByTestId("submit-task").click();
 
   // Click the task card to open TaskView.
@@ -29,9 +29,8 @@ test("create task, verify streaming text and result, then terminate", async ({ p
     timeout: 10_000,
   });
 
-  // The Terminate button (icon with title) should appear once the task is
-  // in waiting state.
-  const terminateBtn = page.locator('button[title="Terminate"]');
+  // The Terminate button should appear once the task is in waiting state.
+  const terminateBtn = page.getByTestId("terminate-task");
   await expect(terminateBtn).toBeVisible({ timeout: 15_000 });
 
   // Click Terminate.

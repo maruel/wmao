@@ -38,7 +38,7 @@ test("send input to nonexistent task returns 404", async ({ request }) => {
 
 test("network failure shows reconnect banner", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("select option")).not.toHaveCount(0);
+  await expect(page.getByTestId("repo-select").locator("option")).not.toHaveCount(0);
 
   // Intercept all API requests to simulate network failure. This must close
   // the existing SSE connection too, so we abort any in-flight requests and
@@ -50,14 +50,14 @@ test("network failure shows reconnect banner", async ({ page }) => {
   await page.reload();
 
   // The reconnecting banner has a 2s delay before appearing.
-  await expect(page.getByText("Reconnecting to server...")).toBeVisible({
+  await expect(page.getByTestId("reconnect-banner")).toBeVisible({
     timeout: 15_000,
   });
 
   // Restore network and reload to verify recovery.
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.reload();
-  await expect(page.getByText("Reconnecting to server...")).not.toBeVisible({
+  await expect(page.getByTestId("reconnect-banner")).not.toBeVisible({
     timeout: 15_000,
   });
 });

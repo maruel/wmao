@@ -272,7 +272,7 @@ export default function App() {
       </div>
 
       <Show when={!connected()}>
-        <div class={styles.reconnecting}>Reconnecting to server...</div>
+        <div class={styles.reconnecting} data-testid="reconnect-banner">Reconnecting to server...</div>
       </Show>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={`${styles.submitForm} ${selectedId() ? styles.hidden : ""}`}>
@@ -281,6 +281,7 @@ export default function App() {
           onChange={(e) => setSelectedRepo(e.currentTarget.value)}
           disabled={submitting()}
           class={styles.repoSelect}
+          data-testid="repo-select"
         >
           <For each={repos()}>
             {(r) => <option value={r.path}>{r.path}</option>}
@@ -366,6 +367,7 @@ export default function App() {
             placeholder="Describe a task..."
             disabled={submitting()}
             class={styles.promptInput}
+            data-testid="prompt-input"
           />
           <Button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
