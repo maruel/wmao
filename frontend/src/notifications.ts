@@ -18,8 +18,7 @@ function canNotify(): boolean {
  */
 export function notifyWaiting(taskId: string, taskName: string): void {
   if (!canNotify() || document.visibilityState === "visible") return;
-  const n = new Notification("Agent waiting for input", {
-    body: `Task #${taskId}: ${taskName}`,
+  const n = new Notification(`${taskName} is ready`, {
     tag: `caic-waiting-${taskId}`,
   });
   n.onclick = () => {
