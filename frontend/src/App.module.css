@@ -190,6 +190,11 @@
     overflow: visible;
   }
 
+  .submitForm.hidden {
+    max-height: 0;
+    overflow: hidden;
+  }
+
   .repoSelect,
   .modelSelect,
   .imageInput {
