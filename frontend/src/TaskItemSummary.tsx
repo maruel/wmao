@@ -21,10 +21,9 @@ export interface TaskItemSummaryProps {
   costUSD: number;
   durationMs: number;
   numTurns: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
+  activeInputTokens: number;
+  activeCacheReadTokens: number;
+  cumulativeOutputTokens: number;
   containerUptimeMs?: number;
   error?: string;
   inPlanMode?: boolean;
@@ -87,10 +86,10 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
         <div class={styles.metaRow}>
           <span class={styles.meta}>
             {props.harness && props.harness !== "claude" ? props.harness + " · " : ""}{props.agentVersion}{props.agentVersion && props.model ? " · " : ""}{props.model}
-            <Show when={props.inputTokens + props.cacheCreationInputTokens + props.cacheReadInputTokens > 0}>
+            <Show when={props.activeInputTokens + props.activeCacheReadTokens > 0}>
               {" · "}
-              <Tooltip text={`${formatTokens(props.inputTokens)} in, ${formatTokens(props.outputTokens)} out, ${formatTokens(props.cacheCreationInputTokens)} cache write, ${formatTokens(props.cacheReadInputTokens)} cache read`}>
-                <span>{formatTokens(props.inputTokens + props.cacheCreationInputTokens + props.cacheReadInputTokens)}</span>
+              <Tooltip text={`${formatTokens(props.activeInputTokens)} new input + ${formatTokens(props.activeCacheReadTokens)} read from cache + ${formatTokens(props.cumulativeOutputTokens)} out`}>
+                <span>{formatTokens(props.activeInputTokens + props.activeCacheReadTokens)}</span>
               </Tooltip>
             </Show>
             <Show when={props.costUSD > 0}>

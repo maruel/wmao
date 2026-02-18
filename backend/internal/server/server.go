@@ -864,7 +864,7 @@ func (s *Server) loadTerminatedTasks() error {
 		// Backfill result stats from restored messages when the trailer
 		// has zero cost (e.g. session exited without a final ResultMessage).
 		if lt.Result.CostUSD == 0 {
-			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs, lt.Result.Usage = t.LiveStats()
+			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs, lt.Result.Usage, _ = t.LiveStats()
 		}
 		done := make(chan struct{})
 		close(done)
@@ -1276,12 +1276,15 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 	}
 	// Token usage is per-query in ResultMessage but cumulative in LiveStats.
 	// Always use LiveStats for token totals.
-	var usage agent.Usage
-	j.CostUSD, j.NumTurns, j.DurationMs, usage = e.task.LiveStats()
-	j.InputTokens = usage.InputTokens
-	j.OutputTokens = usage.OutputTokens
-	j.CacheCreationInputTokens = usage.CacheCreationInputTokens
-	j.CacheReadInputTokens = usage.CacheReadInputTokens
+	var usage, lastUsage agent.Usage
+	j.CostUSD, j.NumTurns, j.DurationMs, usage, lastUsage = e.task.LiveStats()
+	j.CumulativeInputTokens = usage.InputTokens
+	j.CumulativeOutputTokens = usage.OutputTokens
+	j.CumulativeCacheCreationInputTokens = usage.CacheCreationInputTokens
+	j.CumulativeCacheReadInputTokens = usage.CacheReadInputTokens
+	// Active input tokens includes ephemeral input + cache creation (anything sent over wire).
+	j.ActiveInputTokens = lastUsage.InputTokens + lastUsage.CacheCreationInputTokens
+	j.ActiveCacheReadTokens = lastUsage.CacheReadInputTokens
 	if e.result != nil {
 		j.DiffStat = toDTODiffStat(e.result.DiffStat)
 		j.Result = e.result.AgentResult

@@ -54,10 +54,9 @@ export default function TaskList(props: TaskListProps) {
               costUSD={t().costUSD}
               durationMs={t().durationMs}
               numTurns={t().numTurns}
-              inputTokens={t().inputTokens}
-              outputTokens={t().outputTokens}
-              cacheCreationInputTokens={t().cacheCreationInputTokens}
-              cacheReadInputTokens={t().cacheReadInputTokens}
+              activeInputTokens={t().activeInputTokens}
+              activeCacheReadTokens={t().activeCacheReadTokens}
+              cumulativeOutputTokens={t().cumulativeOutputTokens}
               containerUptimeMs={t().containerUptimeMs}
               error={t().error}
               inPlanMode={t().inPlanMode}

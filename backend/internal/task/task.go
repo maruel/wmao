@@ -107,6 +107,7 @@ type Task struct {
 	liveNumTurns   int
 	liveDurationMs int64
 	liveUsage      agent.Usage
+	lastUsage      agent.Usage // Most recent ResultMessage usage (active context).
 	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
 }
 
@@ -136,12 +137,12 @@ func (t *Task) SetStateIf(expected, next State) bool {
 	return true
 }
 
-// LiveStats returns the latest cost, turn count, duration, and token usage
-// accumulated from ResultMessages received during execution.
-func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, usage agent.Usage) {
+// LiveStats returns the latest cost, turn count, duration, cumulative token
+// usage, and the most recent turn's usage (active context).
+func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, cumulativeUsage agent.Usage, lastTurnUsage agent.Usage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs, t.liveUsage
+	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs, t.liveUsage, t.lastUsage
 }
 
 // LiveDiffStat returns the latest diff stat from the relay's periodic polling.
@@ -210,6 +211,7 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
+		t.lastUsage = rm.Usage
 	}
 	// Infer state: if the last message is a ResultMessage, the agent finished
 	// its turn and is waiting for user input (or asking a question). Only
@@ -254,6 +256,7 @@ func (t *Task) addMessage(m agent.Message) {
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
+		t.lastUsage = rm.Usage
 		if t.State == StateRunning {
 			if lastAssistantHasAsk(t.msgs) {
 				t.setState(StateAsking)

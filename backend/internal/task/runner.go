@@ -364,7 +364,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	// Use accumulated live stats when they exceed the session result
 	// (e.g. adopted container after restart where the session only
 	// reflects the reconnected portion, not the full run).
-	if liveCost, liveTurns, liveDur, liveUsage := t.LiveStats(); liveCost > res.CostUSD {
+	if liveCost, liveTurns, liveDur, liveUsage, _ := t.LiveStats(); liveCost > res.CostUSD {
 		res.CostUSD = liveCost
 		res.NumTurns = liveTurns
 		res.DurationMs = liveDur

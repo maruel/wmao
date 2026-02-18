@@ -528,10 +528,12 @@ export interface TaskJSON {
   costUSD: number /* float64 */;
   durationMs: number /* int64 */;
   numTurns: number /* int */;
-  inputTokens: number /* int */;
-  outputTokens: number /* int */;
-  cacheCreationInputTokens: number /* int */;
-  cacheReadInputTokens: number /* int */;
+  cumulativeInputTokens: number /* int */;
+  cumulativeOutputTokens: number /* int */;
+  cumulativeCacheCreationInputTokens: number /* int */;
+  cumulativeCacheReadInputTokens: number /* int */;
+  activeInputTokens: number /* int */; // Last turn's non-cached input tokens (including cache creation).
+  activeCacheReadTokens: number /* int */; // Last turn's cache-read input tokens.
   error?: string;
   result?: string;
   /**
