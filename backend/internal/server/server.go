@@ -131,24 +131,16 @@ type taskEntry struct {
 // per repo, and adopts preexisting containers.
 //
 // Startup sequence:
-//  1. Discover git repos under rootDir.
-//  2. Create a Runner per repo with container and agent backends.
-//  3. loadTerminatedTasks: scan JSONL logs to restore the last 10 completed
-//     tasks so they appear in the UI immediately.
-//  4. adoptContainers: discover running md containers and create live task
-//     entries for them. If a container's relay is alive, auto-attach to
-//     resume streaming. Stale terminated entries (from step 3) that match a
-//     live container are replaced.
+//  1. Initialize container client (instant).
+//  2. Parallel I/O phase: discover repos, load terminated task logs, and list
+//     containers concurrently.
+//  3. Runner init phase: create a Runner per repo with container and agent backends
+//     (runs parallel within after repos are discovered).
+//  4. Adopt containers using pre-fetched list and logs. If a container's relay
+//     is alive, auto-attach to resume streaming.
 func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *Config) (*Server, error) {
 	if logDir == "" {
 		return nil, errors.New("logDir is required")
-	}
-	absPaths, err := gitutil.DiscoverRepos(rootDir, 3)
-	if err != nil {
-		return nil, fmt.Errorf("discover repos: %w", err)
-	}
-	if len(absPaths) == 0 {
-		return nil, fmt.Errorf("no git repos found under %s", rootDir)
 	}
 
 	absRoot, err := filepath.Abs(rootDir)
@@ -156,9 +148,58 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		return nil, err
 	}
 
+	// container.New is instant; run it serially to simplify.
+	mdClient, err := container.New(cfg.TailscaleAPIKey)
+	if err != nil {
+		return nil, fmt.Errorf("init container library: %w", err)
+	}
+
+	// Phase 1: Parallel I/O — repos discovery, logs loading, and container listing.
+	type reposResult struct {
+		paths []string
+		err   error
+	}
+	type logsResult struct {
+		logs []*task.LoadedTask
+		err  error
+	}
+	type containersResult struct {
+		containers []*md.Container
+		err        error
+	}
+
+	repoCh := make(chan reposResult, 1)
+	logCh := make(chan logsResult, 1)
+	contCh := make(chan containersResult, 1)
+
+	go func() {
+		paths, err := gitutil.DiscoverRepos(rootDir, 3)
+		repoCh <- reposResult{paths, err}
+	}()
+	go func() {
+		logs, err := task.LoadLogs(logDir)
+		logCh <- logsResult{logs, err}
+	}()
+	go func() {
+		containers, err := mdClient.List(ctx)
+		contCh <- containersResult{containers, err}
+	}()
+
+	repoRes := <-repoCh
+	logRes := <-logCh
+	contRes := <-contCh
+
+	// Check for errors.
+	if repoRes.err != nil {
+		return nil, fmt.Errorf("discover repos: %w", repoRes.err)
+	}
+	if len(repoRes.paths) == 0 {
+		return nil, fmt.Errorf("no git repos found under %s", rootDir)
+	}
+
 	s := &Server{
 		ctx:          ctx,
-		runners:      make(map[string]*task.Runner, len(absPaths)),
+		runners:      make(map[string]*task.Runner, len(repoRes.paths)),
 		tasks:        make(map[string]*taskEntry),
 		changed:      make(chan struct{}),
 		maxTurns:     maxTurns,
@@ -167,20 +208,17 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		geminiAPIKey: cfg.GeminiAPIKey,
 	}
 
-	mdClient, err := container.New(cfg.TailscaleAPIKey)
-	if err != nil {
-		return nil, fmt.Errorf("init container library: %w", err)
-	}
 	s.mdClient = mdClient
 	backend := &mdBackend{client: mdClient, askProvider: cfg.CommitDescGenProvider, askModel: cfg.CommitDescGenModel}
 
+	// Phase 2: Runner init (parallel per-repo).
 	type repoResult struct {
 		info   repoInfo
 		runner *task.Runner
 	}
-	results := make([]repoResult, len(absPaths))
+	results := make([]repoResult, len(repoRes.paths))
 	var wg sync.WaitGroup
-	for i, abs := range absPaths {
+	for i, abs := range repoRes.paths {
 		wg.Go(func() {
 			rel, err := filepath.Rel(absRoot, abs)
 			if err != nil {
@@ -222,12 +260,24 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		return nil, fmt.Errorf("no usable git repos found under %s", rootDir)
 	}
 
-	if err := s.loadTerminatedTasks(); err != nil {
-		return nil, fmt.Errorf("load terminated tasks: %w", err)
+	// Phase 3: Load terminated tasks from pre-loaded logs.
+	if logRes.err != nil {
+		slog.Warn("failed to load logs at startup", "err", logRes.err)
+	} else {
+		if err := s.loadTerminatedTasksFrom(logRes.logs); err != nil {
+			return nil, fmt.Errorf("load terminated tasks: %w", err)
+		}
 	}
-	if err := s.adoptContainers(ctx); err != nil {
-		return nil, fmt.Errorf("adopt containers: %w", err)
+
+	// Phase 4: Adopt containers (using pre-fetched list).
+	if contRes.err != nil {
+		slog.Warn("cannot list containers, skipping adoption", "err", contRes.err)
+	} else {
+		if err := s.adoptContainers(ctx, contRes.containers, logRes.logs); err != nil {
+			return nil, fmt.Errorf("adopt containers: %w", err)
+		}
 	}
+
 	s.watchContainerEvents(ctx)
 	return s, nil
 }
@@ -823,13 +873,19 @@ func (s *Server) SetRunnerOps(c task.ContainerBackend, backends map[agent.Harnes
 	}
 }
 
-// loadTerminatedTasks loads the last 10 terminated tasks from JSONL logs so
-// they appear in the UI immediately after a server restart.
+// loadTerminatedTasks loads the last 10 terminated tasks from JSONL logs on disk.
+// Exported for testing; New() uses the parallelized variant.
 func (s *Server) loadTerminatedTasks() error {
 	all, err := task.LoadLogs(s.logDir)
 	if err != nil {
 		return err
 	}
+	return s.loadTerminatedTasksFrom(all)
+}
+
+// loadTerminatedTasksFrom populates s.tasks from pre-loaded log data. It filters
+// to tasks with an explicit caic_result trailer and keeps the most recent 10.
+func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 	// Filter to tasks with an explicit caic_result trailer.
 	// Log files without a trailer may belong to still-running tasks.
 	var terminated []*task.LoadedTask
@@ -880,25 +936,15 @@ func (s *Server) loadTerminatedTasks() error {
 // for them so they appear in the UI.
 //
 // Flow:
-//  1. List all running md containers.
-//  2. Load all JSONL logs once (shared across all containers).
-//  3. Map branches from terminated tasks to their IDs so live containers
+//  1. Map branches from terminated tasks to their IDs so live containers
 //     can replace stale entries.
-//  4. For each container matching a caic repo, call adoptOne concurrently.
-func (s *Server) adoptContainers(ctx context.Context) error {
-	containers, err := s.mdClient.List(ctx)
-	if err != nil {
-		slog.Warn("cannot list containers, skipping adoption", "err", err)
+//  2. For each container matching a caic repo, call adoptOne concurrently.
+//
+// containers and allLogs are pre-loaded to avoid redundant I/O. If containers
+// is nil (due to a container client error), adoption is skipped.
+func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container, allLogs []*task.LoadedTask) error {
+	if containers == nil {
 		return nil
-	}
-
-	// Load all logs once upfront instead of per-container. Each adoptOne
-	// used to call LoadLogs independently, which is O(containers * logFiles).
-	allLogs, err := task.LoadLogs(s.logDir)
-	if err != nil {
-		slog.Warn("failed to load logs for adoption", "err", err)
-		// Non-fatal: adoption can proceed without log data. Tasks will
-		// just lack restored messages/prompt.
 	}
 
 	// Map branches loaded from terminated task logs to their ID in
