@@ -51,7 +51,8 @@ class FunctionHandlers(
 
     private suspend fun handleCreateTask(args: JsonObject): JsonElement {
         val prompt = args.requireString("prompt")
-        val repo = args.requireString("repo")
+        val repo = resolveRepo(args.requireString("repo"))
+            ?: return errorResult("Unknown repo: ${args.requireString("repo")}")
         val model = args.optString("model")
         val harness = args.optString("harness") ?: "claude"
         val resp = apiClient.createTask(
@@ -161,6 +162,12 @@ class FunctionHandlers(
             "- **${r.path}** (base: ${r.baseBranch})"
         }
         return textResult("## Repositories\n\n$lines")
+    }
+
+    /** Resolve a repo name to its canonical path using case-insensitive matching. */
+    private suspend fun resolveRepo(name: String): String? {
+        val repos = apiClient.listRepos()
+        return repos.find { it.path.equals(name, ignoreCase = true) }?.path
     }
 
     /** Resolve task_number from args to a real task ID via the map. */
