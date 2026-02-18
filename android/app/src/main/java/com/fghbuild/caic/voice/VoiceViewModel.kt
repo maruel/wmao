@@ -26,6 +26,9 @@ class VoiceViewModel @Inject constructor(
 
     val settings = settingsRepository.settings
 
+    private val taskNumberMap: TaskNumberMap
+        get() = voiceSessionManager.taskNumberMap
+
     private var previousTaskStates: Map<String, String> = emptyMap()
 
     init {
@@ -36,14 +39,17 @@ class VoiceViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { connected ->
                     if (connected) {
-                        voiceSessionManager.injectText(buildSnapshot(taskRepository.tasks.value))
-                        previousTaskStates = taskRepository.tasks.value.associate { it.id to it.state }
+                        val tasks = taskRepository.tasks.value
+                        taskNumberMap.update(tasks)
+                        voiceSessionManager.injectText(buildSnapshot(tasks))
+                        previousTaskStates = tasks.associate { it.id to it.state }
                     }
                 }
         }
         // Track state changes for diff-based notifications while connected.
         viewModelScope.launch {
             taskRepository.tasks.collect { tasks ->
+                taskNumberMap.update(tasks)
                 if (voiceSessionManager.state.value.connected) {
                     notifyTaskChanges(tasks)
                 }
@@ -64,10 +70,6 @@ class VoiceViewModel @Inject constructor(
         voiceSessionManager.selectAudioDevice(deviceId)
     }
 
-    fun setActiveTaskCallback(callback: (String) -> Unit) {
-        voiceSessionManager.onSetActiveTask = callback
-    }
-
     private fun notifyTaskChanges(tasks: List<TaskJSON>) {
         tasks
             .filter { task ->
@@ -75,8 +77,7 @@ class VoiceViewModel @Inject constructor(
                 prev != null && prev != task.state
             }
             .forEach { task ->
-                val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
-                val notification = buildNotification(task, shortName)
+                val notification = buildNotification(task)
                 if (notification != null) {
                     voiceSessionManager.injectText(notification)
                 }
@@ -86,8 +87,9 @@ class VoiceViewModel @Inject constructor(
     private fun buildSnapshot(tasks: List<TaskJSON>): String {
         if (tasks.isEmpty()) return "[No active tasks]"
         val lines = tasks.joinToString("\n") { task ->
+            val num = taskNumberMap.toNumber(task.id) ?: 0
             val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
-            val base = "- $shortName (${task.state}, ${formatElapsed(task.durationMs)}" +
+            val base = "- Task #$num: $shortName (${task.state}, ${formatElapsed(task.durationMs)}" +
                 ", ${formatCost(task.costUSD)}, ${task.harness})"
             when {
                 task.state == "asking" -> "$base — needs input"
@@ -99,16 +101,20 @@ class VoiceViewModel @Inject constructor(
         return "[Current tasks at session start]\n$lines"
     }
 
-    private fun buildNotification(task: TaskJSON, shortName: String): String? = when {
-        task.state == "asking" ->
-            "[Task '$shortName' needs input]"
-        task.state == "waiting" ->
-            "[Task '$shortName' is waiting for input]"
-        task.state == "terminated" && task.result != null ->
-            "[Task '$shortName' completed: ${task.result}]"
-        task.state == "failed" ->
-            "[Task '$shortName' failed: ${task.error ?: "unknown error"}]"
-        else -> null
+    private fun buildNotification(task: TaskJSON): String? {
+        val num = taskNumberMap.toNumber(task.id) ?: return null
+        val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
+        return when {
+            task.state == "asking" ->
+                "[Task #$num ($shortName) needs input]"
+            task.state == "waiting" ->
+                "[Task #$num ($shortName) is waiting for input]"
+            task.state == "terminated" && task.result != null ->
+                "[Task #$num ($shortName) completed: ${task.result}]"
+            task.state == "failed" ->
+                "[Task #$num ($shortName) failed: ${task.error ?: "unknown error"}]"
+            else -> null
+        }
     }
 
     override fun onCleared() {

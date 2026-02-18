@@ -68,9 +68,6 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
     ) { _ -> /* Best-effort; notifications work without it but silently drop. */ }
 
     LaunchedEffect(Unit) {
-        voiceViewModel.setActiveTaskCallback { _ ->
-            // Phase 1: no TaskDetail screen yet; log or ignore.
-        }
         // Request notification permission on first launch.
         if (ContextCompat.checkSelfPermission(
                 context,

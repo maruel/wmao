@@ -90,7 +90,7 @@ class VoiceSessionManager @Inject constructor(
      *  concurrent access that can SIGSEGV in native AudioTrack code. */
     private val playbackDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-    var onSetActiveTask: ((String) -> Unit)? = null
+    val taskNumberMap = TaskNumberMap()
 
     fun setError(message: String) {
         Log.e(TAG, "setError: $message")
@@ -128,9 +128,7 @@ class VoiceSessionManager @Inject constructor(
                 }
 
                 val apiClient = ApiClient(settings.serverURL)
-                functionHandlers = FunctionHandlers(apiClient).also {
-                    it.onSetActiveTask = onSetActiveTask
-                }
+                functionHandlers = FunctionHandlers(apiClient, taskNumberMap)
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")
@@ -688,7 +686,7 @@ class VoiceSessionManager @Inject constructor(
                 "the user to speak first.\n\n" +
                 "## Tools available\n" +
                 "create_task, list_tasks, get_task_detail, send_message, answer_question, " +
-                "sync_task, terminate_task, restart_task, set_active_task.\n\n" +
+                "sync_task, terminate_task.\n\n" +
                 "## Behavior guidelines\n" +
                 "- Be concise. The user is often away from the screen.\n" +
                 "- Summarize task status: state, elapsed time, cost, what the agent is doing.\n" +

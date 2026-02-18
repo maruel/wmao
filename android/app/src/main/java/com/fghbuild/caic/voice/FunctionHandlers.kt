@@ -4,22 +4,21 @@ package com.fghbuild.caic.voice
 import com.caic.sdk.ApiClient
 import com.caic.sdk.CreateTaskReq
 import com.caic.sdk.InputReq
-import com.caic.sdk.RestartReq
 import com.caic.sdk.SyncReq
 import com.caic.sdk.TaskJSON
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-class FunctionHandlers(private val apiClient: ApiClient) {
-
-    var onSetActiveTask: ((String) -> Unit)? = null
+class FunctionHandlers(
+    private val apiClient: ApiClient,
+    private val taskNumberMap: TaskNumberMap,
+) {
 
     suspend fun handle(name: String, args: JsonObject): JsonElement {
         return try {
@@ -31,9 +30,7 @@ class FunctionHandlers(private val apiClient: ApiClient) {
                 "answer_question" -> handleAnswerQuestion(args)
                 "sync_task" -> handleSyncTask(args)
                 "terminate_task" -> handleTerminateTask(args)
-                "restart_task" -> handleRestartTask(args)
                 "get_usage" -> handleGetUsage()
-                "set_active_task" -> handleSetActiveTask(args)
                 "list_repos" -> handleListRepos()
                 else -> errorResult("Unknown function: $name")
             }
@@ -44,16 +41,12 @@ class FunctionHandlers(private val apiClient: ApiClient) {
 
     private suspend fun handleListTasks(): JsonElement {
         val tasks = apiClient.listTasks()
-        if (tasks.isEmpty()) {
-            return JsonObject(mapOf("summary" to JsonPrimitive("No tasks running.")))
+        if (tasks.isEmpty()) return textResult("No tasks running.")
+        val lines = tasks.joinToString("\n") { t ->
+            val num = taskNumberMap.toNumber(t.id) ?: 0
+            taskSummaryLine(num, t)
         }
-        val lines = tasks.joinToString("\n") { t -> taskSummaryLine(t) }
-        return JsonObject(
-            mapOf(
-                "count" to JsonPrimitive(tasks.size),
-                "tasks" to JsonPrimitive(lines),
-            )
-        )
+        return textResult("## Tasks\n\n$lines")
     }
 
     private suspend fun handleCreateTask(args: JsonObject): JsonElement {
@@ -69,84 +62,77 @@ class FunctionHandlers(private val apiClient: ApiClient) {
                 harness = harness,
             )
         )
-        return JsonObject(
-            mapOf(
-                "status" to JsonPrimitive(resp.status),
-                "id" to JsonPrimitive(resp.id),
-            )
-        )
+        // Refresh the map so the new task gets a number.
+        val tasks = apiClient.listTasks()
+        taskNumberMap.update(tasks)
+        val num = taskNumberMap.toNumber(resp.id)
+        return if (num != null) {
+            textResult("Created task #$num: ${prompt.lines().first().take(SHORT_NAME_MAX)}")
+        } else {
+            textResult("Created task: ${prompt.lines().first().take(SHORT_NAME_MAX)}")
+        }
     }
 
     private suspend fun handleGetTaskDetail(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
         val tasks = apiClient.listTasks()
         val t = tasks.find { it.id == taskId }
-            ?: return errorResult("Task not found: $taskId")
+            ?: return errorResult("Task #$num not found")
+        val shortName = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
         val detail = buildString {
-            appendLine("Prompt: ${t.task.trim()}")
-            appendLine("State: ${t.state}  Elapsed: ${formatElapsed(t.durationMs)}  Cost: ${formatCost(t.costUSD)}")
+            appendLine("## Task #$num: $shortName")
+            appendLine()
+            appendLine("**State:** ${t.state}  **Elapsed:** ${formatElapsed(t.durationMs)}  **Cost:** ${formatCost(t.costUSD)}")
             when {
                 t.state == "asking" -> appendLine("Waiting for user input before it can continue.")
                 t.state == "terminated" && !t.result.isNullOrBlank() ->
-                    appendLine("Result: ${t.result}")
+                    appendLine("**Result:** ${t.result}")
                 t.state == "failed" ->
-                    appendLine("Error: ${t.error ?: "unknown"}")
+                    appendLine("**Error:** ${t.error ?: "unknown"}")
             }
             t.diffStat?.takeIf { it.isNotEmpty() }?.let { diff ->
-                append("Changed: ${diff.joinToString(", ") { it.path }}")
+                append("**Changed:** ${diff.joinToString(", ") { it.path }}")
             }
         }.trim()
-        return JsonObject(mapOf("detail" to JsonPrimitive(detail)))
+        return textResult(detail)
     }
 
     private suspend fun handleSendMessage(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
         val message = args.requireString("message")
-        val resp = apiClient.sendInput(taskId, InputReq(prompt = message))
-        return JsonObject(mapOf("status" to JsonPrimitive(resp.status)))
+        apiClient.sendInput(taskId, InputReq(prompt = message))
+        return textResult("Sent message to task #$num.")
     }
 
     private suspend fun handleAnswerQuestion(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
         val answer = args.requireString("answer")
-        val resp = apiClient.sendInput(taskId, InputReq(prompt = answer))
-        return JsonObject(mapOf("status" to JsonPrimitive(resp.status)))
+        apiClient.sendInput(taskId, InputReq(prompt = answer))
+        return textResult("Answered task #$num.")
     }
 
     private suspend fun handleSyncTask(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
         val force = args["force"]?.jsonPrimitive?.booleanOrNull ?: false
         val resp = apiClient.syncTask(taskId, SyncReq(force = force))
-        val result = mutableMapOf<String, JsonElement>(
-            "status" to JsonPrimitive(resp.status),
-        )
-        resp.safetyIssues?.let { issues ->
-            result["safetyIssues"] = JsonArray(
-                issues.map { issue ->
-                    JsonObject(
-                        mapOf(
-                            "file" to JsonPrimitive(issue.file),
-                            "kind" to JsonPrimitive(issue.kind),
-                            "detail" to JsonPrimitive(issue.detail),
-                        )
-                    )
-                }
-            )
+        val issues = resp.safetyIssues
+        return if (issues.isNullOrEmpty()) {
+            textResult("Synced task #$num.")
+        } else {
+            val issueLines = issues.joinToString("\n") { "- **${it.kind}** ${it.file}: ${it.detail}" }
+            textResult("Synced task #$num with safety issues:\n$issueLines")
         }
-        return JsonObject(result)
     }
 
     private suspend fun handleTerminateTask(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
-        val resp = apiClient.terminateTask(taskId)
-        return JsonObject(mapOf("status" to JsonPrimitive(resp.status)))
-    }
-
-    private suspend fun handleRestartTask(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
-        val prompt = args.requireString("prompt")
-        val resp = apiClient.restartTask(taskId, RestartReq(prompt = prompt))
-        return JsonObject(mapOf("status" to JsonPrimitive(resp.status)))
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
+        apiClient.terminateTask(taskId)
+        return textResult("Terminated task #$num.")
     }
 
     private suspend fun handleGetUsage(): JsonElement {
@@ -163,54 +149,54 @@ class FunctionHandlers(private val apiClient: ApiClient) {
                 )
             }
         }
-        return JsonObject(mapOf("usage" to JsonPrimitive(summary)))
-    }
-
-    @Suppress("UnusedPrivateMember")
-    private fun handleSetActiveTask(args: JsonObject): JsonElement {
-        val taskId = args.requireString("task_id")
-        onSetActiveTask?.invoke(taskId)
-        return JsonObject(mapOf("status" to JsonPrimitive("navigated")))
+        return textResult(summary)
     }
 
     private suspend fun handleListRepos(): JsonElement {
         val repos = apiClient.listRepos()
-        return JsonObject(
-            mapOf(
-                "repos" to JsonArray(
-                    repos.map { r ->
-                        JsonObject(
-                            mapOf(
-                                "path" to JsonPrimitive(r.path),
-                                "baseBranch" to JsonPrimitive(r.baseBranch),
-                            )
-                        )
-                    }
-                ),
-            )
-        )
+        if (repos.isEmpty()) return textResult("No repositories available.")
+        val lines = repos.joinToString("\n") { r ->
+            "- **${r.path}** (base: ${r.baseBranch})"
+        }
+        return textResult("## Repositories\n\n$lines")
+    }
+
+    /** Resolve task_number from args to a real task ID via the map. */
+    private fun resolveTaskNumber(args: JsonObject): String? {
+        val num = args.requireInt("task_number")
+        return taskNumberMap.toId(num)
     }
 }
 
-private fun taskSummaryLine(t: TaskJSON): String {
-    val name = t.task.lines().firstOrNull()?.take(40) ?: t.id
-    val base = "[$name] ${t.state} — ${formatElapsed(t.durationMs)}, " +
-        "${formatCost(t.costUSD)}, ${t.harness}, repo: ${t.repo}"
+private fun taskSummaryLine(num: Int, t: TaskJSON): String {
+    val name = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
+    val base = "$num. **$name** — ${t.state}, ${formatElapsed(t.durationMs)}, " +
+        "${formatCost(t.costUSD)}, ${t.harness}"
     return when {
         t.state == "asking" -> "$base — NEEDS INPUT"
         t.state == "terminated" && !t.result.isNullOrBlank() ->
-            "$base — Result: ${t.result!!.take(120)}"
+            "$base — Result: ${t.result!!.take(RESULT_SNIPPET_MAX)}"
         t.state == "failed" -> "$base — Error: ${t.error ?: "unknown"}"
         else -> base
     }
 }
 
+private const val SHORT_NAME_MAX = 40
+private const val RESULT_SNIPPET_MAX = 120
+
 private fun JsonObject.requireString(key: String): String =
     this[key]?.jsonPrimitive?.content
         ?: throw IllegalArgumentException("Missing required parameter: $key")
 
+private fun JsonObject.requireInt(key: String): Int =
+    this[key]?.jsonPrimitive?.intOrNull
+        ?: throw IllegalArgumentException("Missing required integer parameter: $key")
+
 private fun JsonObject.optString(key: String): String? =
     this[key]?.jsonPrimitive?.content
+
+private fun textResult(message: String): JsonElement =
+    JsonObject(mapOf("result" to JsonPrimitive(message)))
 
 private fun errorResult(message: String): JsonElement =
     JsonObject(mapOf("error" to JsonPrimitive(message)))

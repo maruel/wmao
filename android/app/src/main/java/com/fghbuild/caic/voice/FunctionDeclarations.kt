@@ -34,6 +34,13 @@ private fun stringProp(description: String): JsonElement = JsonObject(
     )
 )
 
+private fun intProp(description: String): JsonElement = JsonObject(
+    mapOf(
+        "type" to JsonPrimitive("integer"),
+        "description" to JsonPrimitive(description),
+    )
+)
+
 private fun boolProp(description: String): JsonElement = JsonObject(
     mapOf(
         "type" to JsonPrimitive("boolean"),
@@ -77,64 +84,53 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
     ),
     FunctionDeclaration(
         name = "get_task_detail",
-        description = "Get recent activity and status details for a specific task.",
+        description = "Get recent activity and status details for a task by its number.",
         parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
-            required = listOf("task_id"),
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
+            required = listOf("task_number"),
         ),
         behavior = "NON_BLOCKING",
         scheduling = "WHEN_IDLE",
     ),
     FunctionDeclaration(
         name = "send_message",
-        description = "Send a text message to a waiting or asking agent.",
+        description = "Send a text message to a waiting or asking agent by task number.",
         parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
             "message" to stringProp("The message to send to the agent"),
-            required = listOf("task_id", "message"),
+            required = listOf("task_number", "message"),
         ),
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "answer_question",
-        description = "Answer an agent's question. The agent is in 'asking' state waiting for a response.",
+        description = "Answer an agent's question by task number. The agent is in 'asking' state.",
         parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
             "answer" to stringProp("The answer to the agent's question"),
-            required = listOf("task_id", "answer"),
+            required = listOf("task_number", "answer"),
         ),
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "sync_task",
-        description = "Push the task's code changes to the remote git repository.",
+        description = "Push a task's branch to GitHub by task number.",
         parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
             "force" to boolProp("Force sync even with safety issues"),
-            required = listOf("task_id"),
+            required = listOf("task_number"),
         ),
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "terminate_task",
-        description = "Stop a running coding task.",
+        description = "Stop a running coding task by its number.",
         parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
-            required = listOf("task_id"),
-        ),
-        behavior = "NON_BLOCKING",
-        scheduling = "INTERRUPT",
-    ),
-    FunctionDeclaration(
-        name = "restart_task",
-        description = "Restart a terminated task with a new prompt.",
-        parameters = objectSchema(
-            "task_id" to stringProp("The task ID"),
-            "prompt" to stringProp("New prompt for the restarted task"),
-            required = listOf("task_id", "prompt"),
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
+            required = listOf("task_number"),
         ),
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
@@ -145,16 +141,6 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         parameters = emptyObjectSchema,
         behavior = "NON_BLOCKING",
         scheduling = "WHEN_IDLE",
-    ),
-    FunctionDeclaration(
-        name = "set_active_task",
-        description = "Switch the screen to show a specific task's details.",
-        parameters = objectSchema(
-            "task_id" to stringProp("The task ID to display"),
-            required = listOf("task_id"),
-        ),
-        behavior = "NON_BLOCKING",
-        scheduling = "SILENT",
     ),
     FunctionDeclaration(
         name = "list_repos",
