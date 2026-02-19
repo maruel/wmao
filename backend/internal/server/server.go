@@ -1258,6 +1258,7 @@ func (s *Server) watchTitleGen(entry *taskEntry) {
 	}
 	t := entry.task
 	resultCh := t.ResultNotify()
+	slog.Info("title gen: watching", "task", t.ID, "hasTitle", t.Title() != "")
 	go func() {
 		// Debounce: wait 5s after the last result before generating a title.
 		// This coalesces rapid bursts while still updating after each pause.
@@ -1272,8 +1273,10 @@ func (s *Server) watchTitleGen(entry *taskEntry) {
 			select {
 			case _, ok := <-resultCh:
 				if !ok {
+					slog.Info("title gen: resultCh closed", "task", t.ID)
 					return
 				}
+				slog.Info("title gen: result received, resetting debounce", "task", t.ID)
 				timer.Reset(debounce)
 			case <-timer.C:
 				old := t.Title()
