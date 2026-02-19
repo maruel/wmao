@@ -1,6 +1,8 @@
 // Rich task card matching TaskItemSummary.tsx: state badge, plan mode, error, branch, tokens.
 package com.fghbuild.caic.ui.tasklist
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,11 +21,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,12 +44,21 @@ private val PlanBadgeBg = Color(0xFFEDE9FE)
 private val PlanBadgeFg = Color(0xFF7C3AED)
 private val TerminalStates = setOf("terminated", "failed")
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     val firstLine = task.task.lineSequence().firstOrNull().orEmpty()
+    var showMenu by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
 
-    Card(modifier = modifier.fillMaxWidth(), onClick = onClick) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { showMenu = true },
+            ),
+    ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -118,6 +134,23 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Copy branch name") },
+                    onClick = {
+                        clipboard.setText(AnnotatedString(task.branch))
+                        showMenu = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Copy task ID") },
+                    onClick = {
+                        clipboard.setText(AnnotatedString(task.id))
+                        showMenu = false
+                    },
                 )
             }
         }

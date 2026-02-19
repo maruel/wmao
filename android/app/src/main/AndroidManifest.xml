@@ -28,7 +28,9 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="screenSize|smallestScreenSize|density|screenLayout|orientation|keyboard|keyboardHidden">
+            android:configChanges="screenSize|smallestScreenSize|density|screenLayout|orientation|keyboard|keyboardHidden"
+            android:minWidth="320dp"
+            android:minHeight="480dp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

@@ -526,7 +526,7 @@ class VoiceSessionManager @Inject constructor(
         audioTrack?.play()
     }
 
-    /** Populate available devices list and auto-select BT SCO or speaker. */
+    /** Populate available devices list and auto-select the best device. */
     private fun refreshAvailableDevices() {
         val devices = audioManager.availableCommunicationDevices.map { info ->
             AudioDevice(id = info.id, type = info.type, name = audioDeviceTypeName(info.type))
@@ -535,8 +535,12 @@ class VoiceSessionManager @Inject constructor(
         val autoSelect = if (currentSelected != null && devices.any { it.id == currentSelected }) {
             currentSelected
         } else {
-            // Auto-select BT SCO if available, otherwise default to speaker.
+            // Priority: BT SCO > USB headset/device > wired headphones > built-in speaker.
             devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }?.id
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET }?.id
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_DEVICE }?.id
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES }?.id
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }?.id
                 ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.id
         }
         _state.update { it.copy(availableDevices = devices, selectedDeviceId = autoSelect) }
