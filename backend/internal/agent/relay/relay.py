@@ -484,8 +484,16 @@ def attach_client(offset):
     except (OSError, BrokenPipeError, ValueError, KeyboardInterrupt):
         pass
     finally:
+        # Half-close the socket write side so the relay daemon sees EOF on
+        # client_reader, while keeping the read side open for relay_to_stdout
+        # to drain the subprocess's final output (including the ResultMessage
+        # emitted after stdin close).
+        try:
+            conn.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        t.join(timeout=25)
         conn.close()
-        t.join(timeout=5)
 
 
 def _wait_for_socket(timeout):

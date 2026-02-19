@@ -317,7 +317,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	var result *agent.ResultMessage
 	if h != nil {
 		h.Session.Close()
-		timer := time.NewTimer(10 * time.Second)
+		timer := time.NewTimer(20 * time.Second)
 		select {
 		case <-h.Session.Done():
 			timer.Stop()
