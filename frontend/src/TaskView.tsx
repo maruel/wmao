@@ -3,11 +3,10 @@ import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Sw
 import { sendInput as apiSendInput, restartTask as apiRestartTask, terminateTask as apiTerminateTask, syncTask as apiSyncTask, taskRawEvents } from "@sdk/api.gen";
 import type { ClaudeEventMessage, ClaudeEventAsk, ClaudeAskQuestion, ClaudeEventTextDelta, ClaudeEventToolUse, ClaudeEventToolResult, SafetyIssue, ImageData as APIImageData } from "@sdk/types.gen";
 import { Marked } from "marked";
-import { fileToImageData, imagesFromClipboard } from "./images";
 import AutoResizeTextarea from "./AutoResizeTextarea";
+import PromptInput from "./PromptInput";
 import Button from "./Button";
 import TodoPanel from "./TodoPanel";
-import AttachIcon from "@material-symbols/svg-400/outlined/attach_file.svg?solid";
 import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
 import DeleteIcon from "@material-symbols/svg-400/outlined/delete.svg?solid";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
@@ -166,13 +165,6 @@ export default function TaskView(props: Props) {
     } finally {
       setSending(false);
     }
-  }
-
-  function handleInputPaste(e: ClipboardEvent) {
-    if (!props.supportsImages) return;
-    imagesFromClipboard(e).then((imgs) => {
-      if (imgs.length > 0) setPendingImages((prev) => [...prev, ...imgs]);
-    });
   }
 
   const isActive = () => {
@@ -360,7 +352,7 @@ export default function TaskView(props: Props) {
 
       <Show when={isActive() || !!pendingAction()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }} class={styles.inputForm}>
-          <AutoResizeTextarea
+          <PromptInput
             value={props.inputDraft}
             onInput={props.onInputDraft}
             onSubmit={sendInput}
@@ -368,44 +360,19 @@ export default function TaskView(props: Props) {
             disabled={sending()}
             class={styles.textInput}
             tabIndex={1}
-            ref={(el) => el.addEventListener("paste", handleInputPaste)}
-          />
-          <Show when={props.supportsImages}>
-            <Button type="button" variant="gray" disabled={sending()} title="Attach images" onClick={() => {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.multiple = true;
-              input.accept = "image/png,image/jpeg,image/gif,image/webp";
-              input.onchange = async () => {
-                if (!input.files) return;
-                const imgs = await Promise.all(Array.from(input.files).map(fileToImageData));
-                setPendingImages((prev) => [...prev, ...imgs.filter((i): i is APIImageData => i !== null)]);
-              };
-              input.click();
-            }}>
-              <AttachIcon width="1.1em" height="1.1em" />
+            supportsImages={props.supportsImages}
+            images={pendingImages()}
+            onImagesChange={setPendingImages}
+          >
+            <Button type="submit" disabled={sending() || (!props.inputDraft.trim() && pendingImages().length === 0)} title="Send"><SendIcon width="1.1em" height="1.1em" /></Button>
+            <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={isGitHub() ? "Push to GitHub" : "Push to origin"}>
+              <Show when={isGitHub()} fallback={<SyncIcon width="1.1em" height="1.1em" />}>
+                <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
+              </Show>
             </Button>
-          </Show>
-          <Button type="submit" disabled={sending() || (!props.inputDraft.trim() && pendingImages().length === 0)} title="Send"><SendIcon width="1.1em" height="1.1em" /></Button>
-          <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={isGitHub() ? "Push to GitHub" : "Push to origin"}>
-            <Show when={isGitHub()} fallback={<SyncIcon width="1.1em" height="1.1em" />}>
-              <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
-            </Show>
-          </Button>
-          <Button type="button" variant="red" loading={pendingAction() === "terminate" || props.taskState === "terminating"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate" data-testid="terminate-task"><DeleteIcon width="1.1em" height="1.1em" /></Button>
+            <Button type="button" variant="red" loading={pendingAction() === "terminate" || props.taskState === "terminating"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate" data-testid="terminate-task"><DeleteIcon width="1.1em" height="1.1em" /></Button>
+          </PromptInput>
         </form>
-        <Show when={pendingImages().length > 0}>
-          <div class={styles.imagePreviewRow}>
-            <For each={pendingImages()}>
-              {(img, idx) => (
-                <div class={styles.imageThumb}>
-                  <img src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />
-                  <button class={styles.imageRemove} onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx()))} title="Remove">&times;</button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
         <Show when={safetyIssues().length > 0}>
           <div class={styles.safetyWarning}>
             <strong>Safety issues detected:</strong>

@@ -3,15 +3,13 @@ import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanu
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { HarnessInfo, Repo, Task, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
 import { getConfig, listHarnesses, listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
-import { fileToImageData, imagesFromClipboard } from "./images";
 import TaskView from "./TaskView";
 import TaskList from "./TaskList";
-import AutoResizeTextarea from "./AutoResizeTextarea";
+import PromptInput from "./PromptInput";
 import Button from "./Button";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import UsageBadges from "./UsageBadges";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
-import AttachIcon from "@material-symbols/svg-400/outlined/attach_file.svg?solid";
 import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
 import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
 import TailscaleIcon from "./tailscale.svg?solid";
@@ -97,14 +95,6 @@ export default function App() {
 
   // Ref to the main prompt textarea for focusing after Escape.
   let promptRef: HTMLTextAreaElement | undefined;
-
-  // Handle paste events on the prompt textarea to capture images.
-  function handlePromptPaste(e: ClipboardEvent) {
-    if (!harnessSupportsImages()) return;
-    imagesFromClipboard(e).then((imgs) => {
-      if (imgs.length > 0) setPendingImages((prev) => [...prev, ...imgs]);
-    });
-  }
 
   // Sort tasks the same way TaskList does: active first, then by ID descending.
   const isTerminal = (s: string) => s === "failed" || s === "terminated";
@@ -432,49 +422,23 @@ export default function App() {
             <DisplayIcon width="1.2em" height="1.2em" />
           </label>
         </Show>
-        <div class={styles.promptRow}>
-          <AutoResizeTextarea
-            ref={(el) => { promptRef = el; el.addEventListener("paste", handlePromptPaste); }}
-            value={prompt()}
-            onInput={setPrompt}
-            onSubmit={submitTask}
-            placeholder="Describe a task..."
-            disabled={submitting()}
-            class={styles.promptInput}
-            data-testid="prompt-input"
-          />
-          <Show when={harnessSupportsImages()}>
-            <Button type="button" variant="gray" disabled={submitting()} title="Attach images" onClick={() => {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.multiple = true;
-              input.accept = "image/png,image/jpeg,image/gif,image/webp";
-              input.onchange = async () => {
-                if (!input.files) return;
-                const imgs = await Promise.all(Array.from(input.files).map(fileToImageData));
-                setPendingImages((prev) => [...prev, ...imgs.filter((i): i is APIImageData => i !== null)]);
-              };
-              input.click();
-            }}>
-              <AttachIcon width="1.2em" height="1.2em" />
-            </Button>
-          </Show>
+        <PromptInput
+          value={prompt()}
+          onInput={setPrompt}
+          onSubmit={submitTask}
+          placeholder="Describe a task..."
+          disabled={submitting()}
+          class={styles.promptInput}
+          ref={(el) => { promptRef = el; }}
+          data-testid="prompt-input"
+          supportsImages={harnessSupportsImages()}
+          images={pendingImages()}
+          onImagesChange={setPendingImages}
+        >
           <Button type="submit" disabled={submitting() || (!prompt().trim() && pendingImages().length === 0) || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
           </Button>
-        </div>
-        <Show when={pendingImages().length > 0}>
-          <div class={styles.imagePreviewRow}>
-            <For each={pendingImages()}>
-              {(img, idx) => (
-                <div class={styles.imageThumb}>
-                  <img src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />
-                  <button class={styles.imageRemove} onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx()))} title="Remove">&times;</button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
+        </PromptInput>
       </form>
 
       <div class={styles.layout}>

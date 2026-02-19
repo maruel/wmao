@@ -582,42 +582,6 @@ a.headerRepo:hover {
   color: #28a745;
 }
 
-.imagePreviewRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.35rem;
-}
-
-.imageThumb {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid #ccc;
-}
-
-.imageThumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.imageRemove {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.5);
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 1px 3px;
-  border-radius: 0 0 0 3px;
-}
-
 .userInputImages {
   display: flex;
   flex-wrap: wrap;
