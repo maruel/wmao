@@ -1,26 +1,29 @@
-/* Styles for the PromptInput component: wrapper, drag-over, and image previews. */
+/* Styles for the PromptInput component: container, drag-over, and image previews. */
 
-.wrapper {
-  display: flex;
+.container {
   flex-basis: 100%;
-  gap: 0.5rem;
-  align-items: center;
   min-width: 0;
   box-sizing: border-box;
 }
 
-.wrapper.dragOver {
+.container.dragOver {
   outline: 2px dashed #4a90d9;
   outline-offset: -2px;
   border-radius: 6px;
   background: rgba(74, 144, 217, 0.05);
 }
 
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
 .imagePreviewRow {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  flex-basis: 100%;
   padding-top: 0.25rem;
 }
 

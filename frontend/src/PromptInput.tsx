@@ -76,13 +76,13 @@ export default function PromptInput(props: Props) {
   }
 
   return (
-    <>
-      <div
-        class={`${styles.wrapper}${dragging() ? ` ${styles.dragOver}` : ""}`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+    <div
+      class={`${styles.container}${dragging() ? ` ${styles.dragOver}` : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div class={styles.row}>
         <AutoResizeTextarea
           ref={(el) => {
             el.addEventListener("paste", handlePaste);
@@ -116,6 +116,6 @@ export default function PromptInput(props: Props) {
           </For>
         </div>
       </Show>
-    </>
+    </div>
   );
 }
