@@ -30,6 +30,12 @@ jobs:
         run: make lint-android
       - name: Build
         run: make android-build
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
       - name: Test
         run: make android-test
       - name: Upload lint results
