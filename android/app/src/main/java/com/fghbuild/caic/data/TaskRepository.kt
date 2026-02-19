@@ -41,6 +41,8 @@ class TaskRepository @Inject constructor(
     private val _tasks = MutableStateFlow<List<Task>>(emptyList())
     val tasks: StateFlow<List<Task>> = _tasks.asStateFlow()
 
+    private val _tasksConnected = MutableStateFlow(false)
+    private val _usageConnected = MutableStateFlow(false)
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
@@ -58,27 +60,28 @@ class TaskRepository @Inject constructor(
         scope.launch {
             settingsRepository.settings.collectLatest { settings ->
                 if (settings.serverURL.isBlank()) {
-                    _connected.value = false
+                    _tasksConnected.value = false
+                    _usageConnected.value = false
+                    updateConnected()
                     _tasks.value = emptyList()
                     _usage.value = null
                     return@collectLatest
                 }
                 launch {
                     try {
-                        taskEventsReconnecting(settings.serverURL).collect { tasks ->
-                            _connected.value = true
+                        taskEventsReconnecting(settings.serverURL, _tasksConnected).collect { tasks ->
                             _tasks.value = tasks
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
-                        _connected.value = false
+                        _tasksConnected.value = false
+                        updateConnected()
                     }
                 }
                 launch {
                     try {
-                        usageEventsReconnecting(settings.serverURL).collect { usage ->
-                            _connected.value = true
+                        usageEventsReconnecting(settings.serverURL, _usageConnected).collect { usage ->
                             _usage.value = usage
                         }
                     } catch (e: CancellationException) {
@@ -89,6 +92,10 @@ class TaskRepository @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun updateConnected() {
+        _connected.value = _tasksConnected.value || _usageConnected.value
     }
 
     /** Returns the current server URL, or empty if not configured. */
@@ -164,20 +171,27 @@ class TaskRepository @Inject constructor(
     }
 
     /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
-    private fun taskEventsReconnecting(baseURL: String): Flow<List<Task>> = reconnectingFlow { taskListEvents(baseURL) }
+    private fun taskEventsReconnecting(baseURL: String, flag: MutableStateFlow<Boolean>): Flow<List<Task>> =
+        reconnectingFlow(flag) { taskListEvents(baseURL) }
 
     /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
-    private fun usageEventsReconnecting(baseURL: String): Flow<UsageResp> = reconnectingFlow { usageEvents(baseURL) }
+    private fun usageEventsReconnecting(baseURL: String, flag: MutableStateFlow<Boolean>): Flow<UsageResp> =
+        reconnectingFlow(flag) { usageEvents(baseURL) }
 
-    private fun <T> reconnectingFlow(connect: () -> Flow<T>): Flow<T> = flow {
+    private fun <T> reconnectingFlow(flag: MutableStateFlow<Boolean>, connect: () -> Flow<T>): Flow<T> = flow {
         var delayMs = 500L
         while (true) {
             try {
-                connect().onEach { delayMs = 500L }.collect { emit(it) }
+                connect().onEach {
+                    delayMs = 500L
+                    flag.value = true
+                    updateConnected()
+                }.collect { emit(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _connected.value = false
+                flag.value = false
+                updateConnected()
                 delay(delayMs)
                 delayMs = (delayMs * 3 / 2).coerceAtMost(4000L)
             }
