@@ -163,11 +163,13 @@ func (t *Task) Messages() []agent.Message {
 // It also extracts metadata from the last SystemInitMessage, if any, and
 // infers the task state from the trailing messages: a trailing ResultMessage
 // means the agent completed its turn (StateWaiting or StateAsking).
+// Metadata-only messages (DiffStatMessage, RawMessage) after the
+// ResultMessage are skipped during inference.
 //
 // State inference rules (applied only for non-terminal states):
-//   - Last message is ResultMessage + last assistant has AskUserQuestion → StateAsking
-//   - Last message is ResultMessage (no ask) → StateWaiting
-//   - Last message is NOT ResultMessage → state unchanged (agent was mid-output)
+//   - Trailing ResultMessage + last assistant has AskUserQuestion → StateAsking
+//   - Trailing ResultMessage (no ask) → StateWaiting
+//   - No trailing ResultMessage → state unchanged (agent was mid-output)
 //
 // Called during both log loading (loadTerminatedTasks) and container adoption
 // (adoptOne). For adoption, the caller must handle the case where state
@@ -213,12 +215,14 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
 	}
-	// Infer state: if the last message is a ResultMessage, the agent finished
-	// its turn and is waiting for user input (or asking a question). Only
-	// override non-terminal states — terminated/failed tasks loaded from logs
-	// must keep their recorded state.
+	// Infer state: if the last agent-emitted message is a ResultMessage, the
+	// agent finished its turn and is waiting for user input (or asking a
+	// question). Skip trailing DiffStatMessages — the relay emits periodic
+	// diff stats that can appear after the ResultMessage.
+	// Only override non-terminal states — terminated/failed tasks loaded from
+	// logs must keep their recorded state.
 	if len(msgs) > 0 && t.State != StateTerminated && t.State != StateFailed && t.State != StateTerminating {
-		if _, ok := msgs[len(msgs)-1].(*agent.ResultMessage); ok {
+		if lastAgentMessage(msgs) != nil {
 			if lastAssistantHasAsk(msgs) {
 				t.setState(StateAsking)
 			} else {
@@ -242,12 +246,20 @@ func (t *Task) addMessage(m agent.Message) {
 	// Capture plan file path from Write tool_use targeting .claude/plans/.
 	if am, ok := m.(*agent.AssistantMessage); ok {
 		t.trackPlanState(am)
+		// Transition to running when the agent starts producing output
+		// while the task is in a waiting state. This covers the case where
+		// the server restarts and RestoreMessages inferred StateWaiting
+		// from a trailing ResultMessage, but the agent already started a
+		// new turn on the relay before we reattached.
+		if t.State == StateWaiting || t.State == StateAsking {
+			t.setState(StateRunning)
+		}
 	}
 	// Update live diff stat from relay polling.
 	if ds, ok := m.(*agent.DiffStatMessage); ok {
 		t.liveDiffStat = ds.DiffStat
 	}
-	// Transition to waiting/asking when a result arrives while running.
+	// Transition to waiting/asking when a result arrives.
 	if rm, ok := m.(*agent.ResultMessage); ok {
 		t.liveCostUSD = rm.TotalCostUSD
 		t.liveNumTurns = rm.NumTurns
@@ -257,7 +269,12 @@ func (t *Task) addMessage(m agent.Message) {
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
-		if t.State == StateRunning {
+		// Transition Running→Waiting/Asking. Also handle Running/Waiting
+		// because watchSession may have already set Waiting before the
+		// dispatch goroutine processed this ResultMessage (it does a
+		// blocking Fetch first). In that case we still need to
+		// distinguish Waiting from Asking.
+		if t.State == StateRunning || t.State == StateWaiting {
 			if lastAssistantHasAsk(t.msgs) {
 				t.setState(StateAsking)
 			} else {
@@ -390,20 +407,59 @@ func syntheticUserInput(text string) *agent.UserMessage {
 	}
 }
 
-// lastAssistantHasAsk reports whether the last AssistantMessage in msgs
-// contains an AskUserQuestion tool_use block.
-func lastAssistantHasAsk(msgs []agent.Message) bool {
+// lastAgentMessage scans backwards through msgs, skipping non-semantic
+// messages (DiffStatMessage, StreamEvent, RawMessage), and returns the
+// trailing ResultMessage if the last semantically meaningful message is a
+// result. Returns nil if it is not a ResultMessage (agent still producing
+// output) or msgs is empty.
+func lastAgentMessage(msgs []agent.Message) *agent.ResultMessage {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		am, ok := msgs[i].(*agent.AssistantMessage)
-		if !ok {
-			continue
+		switch m := msgs[i].(type) {
+		case *agent.DiffStatMessage:
+			continue // Relay metadata; skip.
+		case *agent.StreamEvent:
+			continue // Streaming delta; skip.
+		case *agent.RawMessage:
+			continue // tool_progress, etc.; skip.
+		case *agent.ResultMessage:
+			return m
+		default:
+			return nil
 		}
-		for _, b := range am.Message.Content {
-			if b.Type == "tool_use" && b.Name == "AskUserQuestion" {
-				return true
+	}
+	return nil
+}
+
+// lastAssistantHasAsk reports whether any AssistantMessage in the current
+// turn contains an AskUserQuestion tool_use block. It scans backwards from
+// the end, checking every AssistantMessage until it hits a ResultMessage
+// (which marks the end of the previous turn). With --include-partial-messages,
+// the last AssistantMessage is typically a text-only partial snapshot; the
+// tool_use blocks appear in earlier AssistantMessage snapshots.
+func lastAssistantHasAsk(msgs []agent.Message) bool {
+	// Scan backwards through all AssistantMessages in the current turn.
+	// With --include-partial-messages, Claude Code emits multiple assistant
+	// snapshots per turn; AskUserQuestion tool_use may appear in an earlier
+	// snapshot while the final one is text-only. We stop at the previous
+	// turn's ResultMessage boundary. The caller may include the current
+	// turn's ResultMessage in the slice (it's the trigger for this check),
+	// so we skip the first ResultMessage we encounter.
+	skippedResult := false
+	for i := len(msgs) - 1; i >= 0; i-- {
+		switch m := msgs[i].(type) {
+		case *agent.AssistantMessage:
+			for _, b := range m.Message.Content {
+				if b.Type == "tool_use" && b.Name == "AskUserQuestion" {
+					return true
+				}
 			}
+		case *agent.ResultMessage:
+			if skippedResult {
+				// Reached the previous turn's result — stop scanning.
+				return false
+			}
+			skippedResult = true
 		}
-		return false
 	}
 	return false
 }

@@ -239,6 +239,84 @@ func TestTask(t *testing.T) {
 				t.Errorf("state = %v, want %v", tk.State, StateAsking)
 			}
 		})
+		t.Run("TransitionsToAskingWithPartialMessages", func(t *testing.T) {
+			// With --include-partial-messages, Claude Code emits multiple
+			// assistant snapshots per turn. AskUserQuestion appears in an
+			// earlier snapshot while the final one is text-only. The state
+			// machine must scan all assistant messages in the turn.
+			tk := &Task{Prompt: "test", State: StateRunning}
+			tk.addMessage(&agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "text", Text: "I need to ask you something."},
+						{Type: "tool_use", Name: "AskUserQuestion"},
+					},
+				},
+			})
+			// Final partial snapshot: text-only, no tool_use.
+			tk.addMessage(&agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "text", Text: "I need to ask you something."},
+					},
+				},
+			})
+			tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+			if tk.State != StateAsking {
+				t.Errorf("state = %v, want %v", tk.State, StateAsking)
+			}
+		})
+		t.Run("AssistantMessageTransitionsWaitingToRunning", func(t *testing.T) {
+			// When the agent starts producing output while the task is
+			// waiting (e.g. relay reconnect after server restart), the
+			// state should transition back to running.
+			tk := &Task{Prompt: "test", State: StateWaiting}
+			tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+			if tk.State != StateRunning {
+				t.Errorf("state = %v, want %v", tk.State, StateRunning)
+			}
+		})
+		t.Run("AssistantMessageTransitionsAskingToRunning", func(t *testing.T) {
+			tk := &Task{Prompt: "test", State: StateAsking}
+			tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+			if tk.State != StateRunning {
+				t.Errorf("state = %v, want %v", tk.State, StateRunning)
+			}
+		})
+		t.Run("ResultTransitionsWaitingToAsking", func(t *testing.T) {
+			// When watchSession sets Waiting before the ResultMessage is
+			// processed, the ResultMessage should still detect
+			// AskUserQuestion and correct the state to Asking.
+			tk := &Task{Prompt: "test", State: StateRunning}
+			tk.addMessage(&agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "AskUserQuestion"},
+					},
+				},
+			})
+			// Simulate watchSession setting Waiting before ResultMessage
+			// is processed by the dispatch goroutine.
+			tk.SetState(StateWaiting)
+			tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+			if tk.State != StateAsking {
+				t.Errorf("state = %v, want %v", tk.State, StateAsking)
+			}
+		})
+		t.Run("NoTransitionForNonActiveStates", func(t *testing.T) {
+			// AssistantMessages should NOT transition terminal or
+			// setup states.
+			for _, state := range []State{StatePending, StateBranching, StateProvisioning, StateStarting, StateTerminating, StateFailed, StateTerminated} {
+				tk := &Task{Prompt: "test", State: state}
+				tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+				if tk.State != state {
+					t.Errorf("state %v changed to %v; want unchanged", state, tk.State)
+				}
+			}
+		})
 	})
 
 	t.Run("addMessageDiffStat", func(t *testing.T) {
@@ -386,6 +464,23 @@ func TestTask(t *testing.T) {
 			tk.RestoreMessages(msgs)
 			if tk.State != StateAsking {
 				t.Errorf("state = %v, want %v (should infer asking from AskUserQuestion + ResultMessage)", tk.State, StateAsking)
+			}
+		})
+		t.Run("SkipsTrailingDiffStat", func(t *testing.T) {
+			// The relay emits DiffStatMessage after the ResultMessage.
+			// RestoreMessages should skip it and still infer Waiting.
+			tk := &Task{Prompt: "test", State: StateRunning}
+			msgs := []agent.Message{
+				&agent.AssistantMessage{MessageType: "assistant"},
+				&agent.ResultMessage{MessageType: "result"},
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat:    agent.DiffStat{{Path: "main.go", Added: 1}},
+				},
+			}
+			tk.RestoreMessages(msgs)
+			if tk.State != StateWaiting {
+				t.Errorf("state = %v, want %v (trailing DiffStatMessage should be skipped)", tk.State, StateWaiting)
 			}
 		})
 		t.Run("NoResultKeepsState", func(t *testing.T) {
