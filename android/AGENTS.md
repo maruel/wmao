@@ -83,6 +83,14 @@ future use once Google stabilises v1beta ephemeral tokens.
 
 See https://ai.google.dev/gemini-api/docs/ephemeral-tokens.
 
+### Audio configuration
+
+See `docs/app-design.md` § "Audio gotchas" and the
+[Firebase AI SDK AudioHelper.kt](https://github.com/firebase/firebase-android-sdk/blob/main/firebase-ai/src/main/kotlin/com/google/firebase/ai/type/AudioHelper.kt).
+
+- **AudioTrack must use `USAGE_MEDIA`** — `VOICE_COMMUNICATION` clips first 1–2s.
+- **BT disconnect**: car HFP hang-up doesn't remove the device — listen for `ACTION_SCO_AUDIO_STATE_UPDATED`.
+
 ### Protocol notes
 
 - Client must wait for `BidiGenerateContentSetupComplete` before sending other messages.

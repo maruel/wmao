@@ -2,7 +2,10 @@
 package com.fghbuild.caic.voice
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
@@ -81,6 +84,7 @@ class VoiceSessionManager @Inject constructor(
     private var recordingJob: Job? = null
     private var functionHandlers: FunctionHandlers? = null
     private var deviceCallback: AudioDeviceCallback? = null
+    private var scoReceiver: BroadcastReceiver? = null
     private var audioFocusRequest: AudioFocusRequest? = null
 
     private val _state = MutableStateFlow(VoiceState())
@@ -174,6 +178,7 @@ class VoiceSessionManager @Inject constructor(
             VoiceService.start(appContext)
             refreshAvailableDevices()
             registerDeviceCallback()
+            registerScoReceiver()
             setupAudioRecord()
             check(audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
                 "Microphone initialization failed"
@@ -194,6 +199,7 @@ class VoiceSessionManager @Inject constructor(
         recordingJob?.cancel()
         recordingJob = null
         unregisterDeviceCallback()
+        unregisterScoReceiver()
         try {
             audioRecord?.stop()
         } catch (e: Exception) {
@@ -493,11 +499,13 @@ class VoiceSessionManager @Inject constructor(
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-        // USAGE_VOICE_COMMUNICATION so the car's HFP profile shows call UI / hang-up button.
+        // USAGE_MEDIA avoids the telephony DSP reroute latency that VOICE_COMMUNICATION
+        // causes on many devices (clips the first 1-2s of playback). HFP signaling is
+        // handled by the AudioFocusRequest's USAGE_VOICE_COMMUNICATION instead.
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -568,6 +576,38 @@ class VoiceSessionManager @Inject constructor(
     private fun unregisterDeviceCallback() {
         deviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
         deviceCallback = null
+    }
+
+    /** Listen for SCO audio link teardown — fired when the car's HFP hang-up disconnects
+     *  the audio channel without removing the BT device from the system. */
+    private fun registerScoReceiver() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED) return
+                val state = intent.getIntExtra(
+                    AudioManager.EXTRA_SCO_AUDIO_STATE, AudioManager.SCO_AUDIO_STATE_ERROR,
+                )
+                if (state != AudioManager.SCO_AUDIO_STATE_DISCONNECTED) return
+                val selectedId = _state.value.selectedDeviceId ?: return
+                val isBtSco = _state.value.availableDevices.any {
+                    it.id == selectedId && it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                }
+                if (isBtSco) {
+                    Log.i(TAG, "SCO audio disconnected (HFP hang-up), disconnecting")
+                    disconnect()
+                }
+            }
+        }
+        scoReceiver = receiver
+        appContext.registerReceiver(
+            receiver,
+            IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED),
+        )
+    }
+
+    private fun unregisterScoReceiver() {
+        scoReceiver?.let { appContext.unregisterReceiver(it) }
+        scoReceiver = null
     }
 
     private fun clearCommunicationDevice() {

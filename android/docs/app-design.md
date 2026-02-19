@@ -195,6 +195,21 @@ auth, at the cost of implementing the audio plumbing ourselves.
 6. **toolCall dispatch**: parse `toolCall.functionCalls[]`, execute handler,
    send `toolResponse.functionResponses[]` back.
 
+#### Audio gotchas
+
+- **AudioTrack must use `USAGE_MEDIA`**, not `USAGE_VOICE_COMMUNICATION`.
+  `VOICE_COMMUNICATION` routes through the telephony DSP, clipping the first
+  1–2s of playback. This matches the Firebase AI SDK (`AudioHelper.kt`).
+  HFP signaling uses `USAGE_VOICE_COMMUNICATION` on the `AudioFocusRequest`
+  only, which doesn't affect the playback path.
+- **Half-duplex**: mic is paused during model playback. AEC alone is unreliable.
+- **Bluetooth disconnect**: car HFP hang-up tears down the SCO audio link but
+  does **not** remove the BT device from `AudioDeviceInfo`. The
+  `AudioDeviceCallback` won't fire. A `BroadcastReceiver` for
+  `ACTION_SCO_AUDIO_STATE_UPDATED` detects this and calls `disconnect()`.
+- **Audio focus**: `AUDIOFOCUS_LOSS` and `AUDIOFOCUS_LOSS_TRANSIENT` (incoming
+  phone call) both disconnect — a live WebSocket session can't pause.
+
 #### What the server handles (no client implementation needed)
 
 - **VAD**: server-side voice activity detection is on by default. The server
@@ -460,6 +475,10 @@ data class VoiceState(
     val activeTool: String? = null,
     val error: String? = null,
     val errorId: Long = 0,
+    val transcript: List<TranscriptEntry> = emptyList(),
+    val micLevel: Float = 0f,
+    val availableDevices: List<AudioDevice> = emptyList(),
+    val selectedDeviceId: Int? = null,
 )
 ```
 
@@ -524,10 +543,12 @@ object NotificationChannels {
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 ```
 
-`RECORD_AUDIO` runtime permission on first mic tap.
+`RECORD_AUDIO` and `BLUETOOTH_CONNECT` are runtime permissions (requested on first mic tap).
 
 ---
 
@@ -787,6 +808,8 @@ implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.28.0")
 - [Firebase AI quickstart — live](https://github.com/firebase/quickstart-android/tree/master/firebase-ai/app/src/main/java/com/google/firebase/quickstart/ai/feature/live) — Firebase Live API sample
 
 ### SDKs (for reference, not used directly)
+- [Firebase AI SDK — AudioHelper.kt](https://github.com/firebase/firebase-android-sdk/blob/main/firebase-ai/src/main/kotlin/com/google/firebase/ai/type/AudioHelper.kt) — reference audio config: `USAGE_MEDIA` for AudioTrack, `VOICE_COMMUNICATION` source for AudioRecord, AEC
+- [Firebase AI SDK — LiveSession.kt](https://github.com/firebase/firebase-android-sdk/blob/main/firebase-ai/src/main/kotlin/com/google/firebase/ai/type/LiveSession.kt) — half-duplex mic pause, audio thread priority, playback accumulation
 - [google-genai Python SDK — tokens.py](https://github.com/googleapis/python-genai/blob/main/google/genai/tokens.py) — ephemeral token creation implementation
 - [google-genai Go SDK](https://github.com/googleapis/go-genai) — Go SDK (no Live API yet, but useful for understanding the Gemini API surface)
 
