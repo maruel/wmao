@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -72,16 +73,32 @@ class TaskDetailViewModel @Inject constructor(
 
     private var sseJob: Job? = null
 
+    /** Pre-computed grouping derived only from [_messages], avoiding redundant work in combine. */
+    private data class Grouped(
+        val groups: List<MessageGroup> = emptyList(),
+        val turns: List<Turn> = emptyList(),
+        val todos: List<ClaudeTodoItem> = emptyList(),
+    )
+
+    private val _grouped: StateFlow<Grouped> = _messages.map { msgs ->
+        val groups = groupMessages(msgs)
+        Grouped(
+            groups = groups,
+            turns = groupTurns(groups),
+            todos = msgs.lastOrNull { it.kind == EventKinds.Todo }?.todo?.todos.orEmpty(),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Grouped())
+
     @Suppress("UNCHECKED_CAST")
     val state: StateFlow<TaskDetailState> = combine(
         listOf(
-            taskRepository.tasks, _messages, _isReady, _sending,
+            taskRepository.tasks, _grouped, _isReady, _sending,
             _pendingAction, _actionError, _safetyIssues, _inputDraft,
             _pendingImages, _harnesses,
         )
     ) { values ->
         val tasks = values[0] as List<Task>
-        val msgs = values[1] as List<ClaudeEventMessage>
+        val grouped = values[1] as Grouped
         val ready = values[2] as Boolean
         val sending = values[3] as Boolean
         val action = values[4] as String?
@@ -91,17 +108,14 @@ class TaskDetailViewModel @Inject constructor(
         val images = values[8] as List<ImageData>
         val harnesses = values[9] as List<HarnessInfo>
         val task = tasks.firstOrNull { it.id == taskId }
-        val groups = groupMessages(msgs)
-        val turns = groupTurns(groups)
-        val lastTodo = msgs.lastOrNull { it.kind == EventKinds.Todo }?.todo?.todos.orEmpty()
         val imgSupport = task != null &&
             harnesses.any { it.name == task.harness && it.supportsImages }
         TaskDetailState(
             task = task,
-            messages = msgs,
-            groups = groups,
-            turns = turns,
-            todos = lastTodo,
+            messages = _messages.value,
+            groups = grouped.groups,
+            turns = grouped.turns,
+            todos = grouped.todos,
             isReady = ready,
             sending = sending,
             pendingAction = action,
@@ -130,6 +144,7 @@ class TaskDetailViewModel @Inject constructor(
         }
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun connectSSE() {
         sseJob?.cancel()
         sseJob = viewModelScope.launch {
@@ -139,10 +154,16 @@ class TaskDetailViewModel @Inject constructor(
             var delayMs = 500L
             val buf = mutableListOf<ClaudeEventMessage>()
             var live = false
+            // Pending live events batched between flushes.
+            val pending = mutableListOf<ClaudeEventMessage>()
+            var flushJob: Job? = null
 
             while (true) {
                 buf.clear()
                 live = false
+                pending.clear()
+                flushJob?.cancel()
+                flushJob = null
                 _isReady.value = false
                 try {
                     taskRepository.taskRawEventsWithReady(baseURL, taskId).collect { event ->
@@ -155,7 +176,17 @@ class TaskDetailViewModel @Inject constructor(
                             }
                             is TaskSSEEvent.Event -> {
                                 if (live) {
-                                    _messages.value = _messages.value + event.msg
+                                    pending.add(event.msg)
+                                    if (flushJob == null) {
+                                        flushJob = launch {
+                                            delay(LIVE_BATCH_MS)
+                                            if (pending.isNotEmpty()) {
+                                                _messages.value = _messages.value + pending.toList()
+                                                pending.clear()
+                                            }
+                                            flushJob = null
+                                        }
+                                    }
                                 } else {
                                     buf.add(event.msg)
                                 }
@@ -166,6 +197,14 @@ class TaskDetailViewModel @Inject constructor(
                     throw e
                 } catch (_: Exception) {
                     // Fall through to reconnect.
+                } finally {
+                    flushJob?.cancel()
+                    // Flush any remaining pending events so they're not lost.
+                    if (pending.isNotEmpty()) {
+                        _messages.value = _messages.value + pending.toList()
+                        pending.clear()
+                    }
+                    flushJob = null
                 }
                 // For terminal tasks with messages, stop reconnecting.
                 val currentTask = taskRepository.tasks.value.firstOrNull { it.id == taskId }
@@ -176,6 +215,11 @@ class TaskDetailViewModel @Inject constructor(
                 delayMs = (delayMs * 3 / 2).coerceAtMost(4000L)
             }
         }
+    }
+
+    companion object {
+        /** Batching interval for live SSE events (ms). Balances responsiveness vs CPU. */
+        private const val LIVE_BATCH_MS = 100L
     }
 
     fun updateInputDraft(text: String) {
