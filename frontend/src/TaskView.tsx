@@ -475,6 +475,8 @@ function groupMessages(msgs: ClaudeEventMessage[]): MessageGroup[] {
     return groups[groups.length - 1];
   }
 
+  let usageSinceLastTool = false;
+
   for (const ev of msgs) {
     switch (ev.kind) {
       case "text": {
@@ -498,13 +500,31 @@ function groupMessages(msgs: ClaudeEventMessage[]): MessageGroup[] {
       }
       case "toolUse": {
         if (ev.toolUse) {
-          const last = lastGroup();
           const call: ToolCall = { use: ev.toolUse, done: false };
-          if (last && last.kind === "tool") {
+          const last = lastGroup();
+          if (last && last.kind === "tool" && !usageSinceLastTool) {
+            // Consecutive toolUse in the same AssistantMessage — merge.
             last.events.push(ev);
             last.toolCalls.push(call);
+          } else if (!usageSinceLastTool) {
+            // Same AssistantMessage but intervening text; find the most
+            // recent tool group to coalesce into.
+            let merged = false;
+            for (let i = groups.length - 1; i >= 0; i--) {
+              if (groups[i].kind === "tool") {
+                groups[i].events.push(ev);
+                groups[i].toolCalls.push(call);
+                merged = true;
+                break;
+              }
+            }
+            if (!merged) {
+              groups.push({ kind: "tool", events: [ev], toolCalls: [call] });
+            }
           } else {
+            // New AssistantMessage — start a new tool group.
             groups.push({ kind: "tool", events: [ev], toolCalls: [call] });
+            usageSinceLastTool = false;
           }
         }
         break;
@@ -550,6 +570,7 @@ function groupMessages(msgs: ClaudeEventMessage[]): MessageGroup[] {
       }
       case "usage":
         {
+          usageSinceLastTool = true;
           const last = lastGroup();
           if (last && (last.kind === "text" || last.kind === "tool")) {
             last.events.push(ev);
@@ -557,6 +578,10 @@ function groupMessages(msgs: ClaudeEventMessage[]): MessageGroup[] {
             groups.push({ kind: "other", events: [ev], toolCalls: [] });
           }
         }
+        break;
+      case "todo":
+        // Rendered by TodoPanel from messages() directly; skip here to avoid
+        // splitting consecutive tool groups.
         break;
       case "diffStat":
         // Metadata-only; live diff stat shown in the task list via Task.diffStat.
