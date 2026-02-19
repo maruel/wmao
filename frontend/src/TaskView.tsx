@@ -60,6 +60,7 @@ interface Props {
   onClose: () => void;
   inputDraft: string;
   onInputDraft: (value: string) => void;
+  taskTitle: string;
   children?: JSX.Element;
 }
 
@@ -70,6 +71,7 @@ export default function TaskView(props: Props) {
   const [pendingAction, setPendingAction] = createSignal<"sync" | "terminate" | "restart" | null>(null);
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [safetyIssues, setSafetyIssues] = createSignal<SafetyIssue[]>([]);
+  const [synced, setSynced] = createSignal(false);
 
   // Auto-scroll: keep scrolled to bottom unless the user scrolled up.
   let messageAreaRef: HTMLDivElement | undefined; // eslint-disable-line no-unassigned-vars -- assigned by SolidJS ref
@@ -175,17 +177,36 @@ export default function TaskView(props: Props) {
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
   const isGitHub = () => !!props.repoURL?.includes("github.com");
 
+  function openPR() {
+    const base = props.repoURL;
+    if (!base) return;
+    const url = `${base}/compare/${encodeURIComponent(props.branch)}?expand=1&title=${encodeURIComponent(props.taskTitle)}`;
+    window.open(url, "_blank", "noopener");
+    setSynced(false);
+  }
+
   async function doSync(force: boolean) {
+    // Second click after successful sync on GitHub repos: open PR page.
+    if (synced() && isGitHub() && !force) {
+      openPR();
+      return;
+    }
     if (pendingAction()) return;
     setPendingAction("sync");
     setActionError(null);
     setSafetyIssues([]);
     try {
       const resp = await apiSyncTask(props.taskId, { force });
-      if (resp.status === "blocked" && resp.safetyIssues?.length) {
-        setSafetyIssues(resp.safetyIssues);
+      if (resp.status === "synced") {
+        setSynced(true);
+      } else {
+        setSynced(false);
+        if (resp.status === "blocked" && resp.safetyIssues?.length) {
+          setSafetyIssues(resp.safetyIssues);
+        }
       }
     } catch (e) {
+      setSynced(false);
       const msg = e instanceof Error ? e.message : "Unknown error";
       setActionError(`sync failed: ${msg}`);
       setTimeout(() => setActionError(null), 5000);
@@ -365,9 +386,9 @@ export default function TaskView(props: Props) {
             onImagesChange={setPendingImages}
           >
             <Button type="submit" disabled={sending() || (!props.inputDraft.trim() && pendingImages().length === 0)} title="Send"><SendIcon width="1.1em" height="1.1em" /></Button>
-            <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={isGitHub() ? "Push to GitHub" : "Push to origin"}>
+            <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={synced() && isGitHub() ? "Open GitHub PR" : isGitHub() ? "Push to GitHub" : "Push to origin"}>
               <Show when={isGitHub()} fallback={<SyncIcon width="1.1em" height="1.1em" />}>
-                <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
+                <GitHubIcon width="1.1em" height="1.1em" style={{ color: synced() ? "var(--color-accent, #1a7f37)" : "black" }} />
               </Show>
             </Button>
             <Button type="button" variant="red" loading={pendingAction() === "terminate" || props.taskState === "terminating"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate" data-testid="terminate-task"><DeleteIcon width="1.1em" height="1.1em" /></Button>

@@ -492,6 +492,7 @@ export default function App() {
                   onClose={() => navigate("/")}
                   inputDraft={inputDrafts().get(id) ?? ""}
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
+                  taskTitle={selectedTask()?.title ?? ""}
                 >
                   <UsageBadges usage={usage} now={now} />
                 </TaskView>
