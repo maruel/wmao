@@ -11,6 +11,7 @@ import com.caic.sdk.EventKinds
 import com.caic.sdk.HarnessInfo
 import com.caic.sdk.ImageData
 import com.caic.sdk.InputReq
+import com.caic.sdk.Prompt
 import com.caic.sdk.RestartReq
 import com.caic.sdk.SafetyIssue
 import com.caic.sdk.SyncReq
@@ -246,8 +247,7 @@ class TaskDetailViewModel @Inject constructor(
                 client.sendInput(
                     taskId,
                     InputReq(
-                        prompt = text,
-                        images = images.ifEmpty { null },
+                        prompt = Prompt(text = text, images = images.ifEmpty { null }),
                     ),
                 )
                 _inputDraft.value = ""
@@ -302,7 +302,7 @@ class TaskDetailViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val client = ApiClient(taskRepository.serverURL())
-                client.restartTask(taskId, RestartReq(prompt = prompt))
+                client.restartTask(taskId, RestartReq(prompt = Prompt(text = prompt)))
             } catch (e: Exception) {
                 showActionError("restart failed: ${e.message}")
             } finally {

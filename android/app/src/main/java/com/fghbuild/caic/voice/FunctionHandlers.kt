@@ -4,6 +4,7 @@ package com.fghbuild.caic.voice
 import com.caic.sdk.ApiClient
 import com.caic.sdk.CreateTaskReq
 import com.caic.sdk.InputReq
+import com.caic.sdk.Prompt
 import com.caic.sdk.SyncReq
 import com.caic.sdk.Task
 import com.fghbuild.caic.util.formatCost
@@ -59,7 +60,7 @@ class FunctionHandlers(
         val harness = args.optString("harness") ?: "claude"
         val resp = apiClient.createTask(
             CreateTaskReq(
-                prompt = prompt,
+                initialPrompt = Prompt(text = prompt),
                 repo = repo,
                 model = model,
                 harness = harness,
@@ -83,7 +84,7 @@ class FunctionHandlers(
         val tasks = apiClient.listTasks()
         val t = tasks.find { it.id == taskId }
             ?: return errorResult("Task #$num not found")
-        val shortName = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
+        val shortName = t.initialPrompt.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
         val detail = buildString {
             appendLine("## Task #$num: $shortName")
             appendLine()
@@ -108,7 +109,7 @@ class FunctionHandlers(
         val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
         val num = args.requireInt("task_number")
         val message = args.requireString("message")
-        apiClient.sendInput(taskId, InputReq(prompt = message))
+        apiClient.sendInput(taskId, InputReq(prompt = Prompt(text = message)))
         return textResult("Sent message to task #$num.")
     }
 
@@ -116,7 +117,7 @@ class FunctionHandlers(
         val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
         val num = args.requireInt("task_number")
         val answer = args.requireString("answer")
-        apiClient.sendInput(taskId, InputReq(prompt = answer))
+        apiClient.sendInput(taskId, InputReq(prompt = Prompt(text = answer)))
         return textResult("Answered task #$num.")
     }
 
@@ -183,7 +184,7 @@ class FunctionHandlers(
 }
 
 private fun taskSummaryLine(num: Int, t: Task): String {
-    val name = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
+    val name = t.initialPrompt.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
     val base = "$num. **$name** — ${t.state}, ${formatElapsed(t.duration)}, " +
         "${formatCost(t.costUSD)}, ${t.harness}"
     return when {

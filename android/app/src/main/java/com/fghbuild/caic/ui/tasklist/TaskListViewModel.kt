@@ -8,6 +8,7 @@ import com.caic.sdk.Config
 import com.caic.sdk.CreateTaskReq
 import com.caic.sdk.HarnessInfo
 import com.caic.sdk.ImageData
+import com.caic.sdk.Prompt
 import com.caic.sdk.Repo
 import com.caic.sdk.Task
 import com.caic.sdk.UsageResp
@@ -155,11 +156,13 @@ class TaskListViewModel @Inject constructor(
                 val client = ApiClient(url)
                 client.createTask(
                     CreateTaskReq(
-                        prompt = prompt,
+                        initialPrompt = Prompt(
+                            text = prompt,
+                            images = form.pendingImages.ifEmpty { null },
+                        ),
                         repo = form.selectedRepo,
                         harness = form.selectedHarness,
                         model = form.selectedModel.ifBlank { null },
-                        images = form.pendingImages.ifEmpty { null },
                     )
                 )
                 settingsRepository.addRecentRepo(form.selectedRepo)

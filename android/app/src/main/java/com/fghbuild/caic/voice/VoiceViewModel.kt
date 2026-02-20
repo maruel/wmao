@@ -98,7 +98,7 @@ class VoiceViewModel @Inject constructor(
         if (tasks.isEmpty()) return "[No active tasks]"
         val lines = tasks.joinToString("\n") { task ->
             val num = taskNumberMap.toNumber(task.id) ?: 0
-            val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
+            val shortName = task.initialPrompt.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
             val base = "- Task #$num: $shortName (${task.state}, ${formatElapsed(task.duration)}" +
                 ", ${formatCost(task.costUSD)}, ${task.harness})"
             if (task.state == "asking") "$base — needs input" else base
@@ -108,7 +108,7 @@ class VoiceViewModel @Inject constructor(
 
     private fun buildNotification(task: Task): String? {
         val num = taskNumberMap.toNumber(task.id) ?: return null
-        val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
+        val shortName = task.initialPrompt.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
         return when {
             task.state == "asking" ->
                 "[Task #$num ($shortName) needs input]"

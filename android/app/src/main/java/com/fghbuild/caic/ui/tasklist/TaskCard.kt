@@ -47,7 +47,7 @@ private val TerminalStates = setOf("terminated", "failed")
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
-    val firstLine = task.task.lineSequence().firstOrNull().orEmpty()
+    val firstLine = task.initialPrompt.lineSequence().firstOrNull().orEmpty()
     var showMenu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
 
@@ -175,9 +175,9 @@ private fun TickingElapsed(stateUpdatedAt: Double) {
             now = System.currentTimeMillis()
         }
     }
-    val elapsedMs = (now - (stateUpdatedAt * 1000).toLong()).coerceAtLeast(0)
+    val elapsedSec = (now - (stateUpdatedAt * 1000).toLong()).coerceAtLeast(0) / 1000.0
     Text(
-        text = formatElapsed(elapsedMs),
+        text = formatElapsed(elapsedSec),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
