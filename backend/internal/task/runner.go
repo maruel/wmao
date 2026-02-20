@@ -235,7 +235,6 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	if r.Container == nil {
 		return nil, errors.New("runner has no container backend configured")
 	}
-	t.StartedAt = time.Now().UTC()
 	t.setState(StateBranching)
 
 	// 1. Create branch + start container (serialized).

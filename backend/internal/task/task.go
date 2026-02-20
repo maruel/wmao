@@ -77,19 +77,23 @@ type SessionHandle struct {
 type Task struct {
 	// Immutable fields — set at creation, never modified.
 	ID            ksid.ID
-	InitialPrompt agent.Prompt  // Initial prompt text and optional images; never mutated.
+	InitialPrompt agent.Prompt  // Initial prompt text and optional images.
 	Repo          string        // Relative repo path (for display/API).
 	Harness       agent.Harness // Agent harness ("claude", "gemini", etc.).
 	Image         string        // Custom Docker base image; empty means use the default.
 	Tailscale     bool          // Enable Tailscale networking in the container.
 	USB           bool          // Enable USB passthrough in the container.
 	Display       bool          // Enable Xvfb display in the container.
-	MaxTurns      int
+	MaxTurns      int           // Maximum number of turns before task is terminated.
+	StartedAt     time.Time     // When the task was created.
+
+	// Write-once fields — set during setup/adoption, never modified after.
+	Branch        string
+	Container     string
+	TailscaleFQDN string // Tailscale FQDN assigned to the container (empty if not available).
+	RelayOffset   int64  // Bytes received from relay output.jsonl, for reconnect.
 
 	// Mutable fields — written during the task lifecycle by the runner.
-	TailscaleFQDN  string // Tailscale FQDN assigned to the container (empty if not available).
-	Branch         string
-	Container      string
 	State          State
 	StateUpdatedAt time.Time // UTC timestamp of the last state transition.
 	SessionID      string    // Claude Code session ID, captured from SystemInitMessage.
@@ -97,8 +101,6 @@ type Task struct {
 	AgentVersion   string    // Agent version, captured from SystemInitMessage.
 	PlanFile       string    // Path to plan file inside container, captured from Write tool_use.
 	InPlanMode     bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
-	StartedAt      time.Time
-	RelayOffset    int64 // Bytes received from relay output.jsonl, for reconnect.
 
 	mu           sync.Mutex
 	title        string // LLM-generated short title; set via SetTitle.

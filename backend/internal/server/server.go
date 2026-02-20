@@ -420,7 +420,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: dtoPromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: dtoPromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC()}
 	t.SetTitle(req.InitialPrompt.Text)
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
