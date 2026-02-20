@@ -172,8 +172,8 @@ func TestToolTiming(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].ToolResult.DurationMs != 500 {
-		t.Errorf("durationMs = %d, want 500", events[0].ToolResult.DurationMs)
+	if events[0].ToolResult.Duration != 0.5 {
+		t.Errorf("duration = %f, want 0.5", events[0].ToolResult.Duration)
 	}
 	if events[0].ToolResult.ToolUseID != "tool_1" {
 		t.Errorf("toolUseID = %q, want %q", events[0].ToolResult.ToolUseID, "tool_1")
@@ -192,8 +192,8 @@ func TestToolTimingUnknownID(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].ToolResult.DurationMs != 0 {
-		t.Errorf("durationMs = %d, want 0 for unknown ID", events[0].ToolResult.DurationMs)
+	if events[0].ToolResult.Duration != 0 {
+		t.Errorf("duration = %f, want 0 for unknown ID", events[0].ToolResult.Duration)
 	}
 }
 

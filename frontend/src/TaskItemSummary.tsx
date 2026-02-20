@@ -19,7 +19,7 @@ export interface TaskItemSummaryProps {
   model?: string;
   agentVersion?: string;
   costUSD: number;
-  durationMs: number;
+  duration: number;
   numTurns: number;
   activeInputTokens: number;
   activeCacheReadTokens: number;

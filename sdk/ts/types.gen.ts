@@ -187,7 +187,7 @@ export interface EventToolUse {
  */
 export interface EventToolResult {
   toolUseID: string;
-  durationMs: number /* int64 */; // Server-computed; 0 if unknown.
+  duration: number /* float64 */; // Seconds; server-computed; 0 if unknown.
   error?: string;
 }
 /**
@@ -233,8 +233,8 @@ export interface EventResult {
   result: string;
   diffStat?: DiffStat;
   totalCostUSD: number /* float64 */;
-  durationMs: number /* int64 */;
-  durationAPIMs: number /* int64 */;
+  duration: number /* float64 */; // Seconds.
+  durationAPI: number /* float64 */; // Seconds.
   numTurns: number /* int */;
   usage: EventUsage;
 }
@@ -386,7 +386,7 @@ export interface ClaudeEventToolUse {
  */
 export interface ClaudeEventToolResult {
   toolUseID: string;
-  durationMs: number /* int64 */;
+  duration: number /* float64 */; // Seconds; server-computed; 0 if unknown.
   error?: string;
 }
 /**
@@ -432,8 +432,8 @@ export interface ClaudeEventResult {
   result: string;
   diffStat?: DiffStat;
   totalCostUSD: number /* float64 */;
-  durationMs: number /* int64 */;
-  durationAPIMs: number /* int64 */;
+  duration: number /* float64 */; // Seconds.
+  durationAPI: number /* float64 */; // Seconds.
   numTurns: number /* int */;
   usage: ClaudeEventUsage;
 }
@@ -548,7 +548,7 @@ export interface Task {
   stateUpdatedAt: number /* float64 */; // Unix epoch seconds (ms precision) of last state change.
   diffStat?: DiffStat;
   costUSD: number /* float64 */;
-  durationMs: number /* int64 */;
+  duration: number /* float64 */; // Seconds.
   numTurns: number /* int */;
   cumulativeInputTokens: number /* int */;
   cumulativeOutputTokens: number /* int */;

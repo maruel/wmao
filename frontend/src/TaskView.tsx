@@ -483,7 +483,7 @@ function MessageItem(props: { ev: ClaudeEventMessage }) {
               )}
             </Show>
             <div class={styles.resultMeta}>
-              ${result.totalCostUSD.toFixed(4)} &middot; {(result.durationMs / 1000).toFixed(1)}s &middot; {result.numTurns} turns
+              ${result.totalCostUSD.toFixed(4)} &middot; {result.duration.toFixed(1)}s &middot; {result.numTurns} turns
             </div>
           </div>
         )}
@@ -691,9 +691,9 @@ function groupTurns(groups: MessageGroup[]): Turn[] {
   return turns;
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+function formatDuration(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  return `${seconds.toFixed(1)}s`;
 }
 
 function formatTokens(n: number): string {
@@ -912,7 +912,7 @@ function ToolCallInput(props: { input: Record<string, unknown> }) {
 }
 
 function ToolCallBlock(props: { call: ToolCall; open: boolean; onToggle: (open: boolean) => void }) {
-  const duration = () => props.call.result?.durationMs ?? 0;
+  const duration = () => props.call.result?.duration ?? 0;
   const error = () => props.call.result?.error ?? "";
   const detail = () => toolCallDetail(props.call.use.name, props.call.use.input ?? {});
   return (

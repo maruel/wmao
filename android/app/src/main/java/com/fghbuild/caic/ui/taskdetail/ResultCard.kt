@@ -47,7 +47,7 @@ fun ResultCard(result: ClaudeEventResult) {
             }
 
             Text(
-                text = "${formatCost(result.totalCostUSD)} \u00b7 ${formatDuration(result.durationMs)}" +
+                text = "${formatCost(result.totalCostUSD)} \u00b7 ${formatDuration(result.duration)}" +
                     " \u00b7 ${result.numTurns} turns",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

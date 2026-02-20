@@ -63,7 +63,7 @@ type Task struct {
 	StateUpdatedAt                     float64  `json:"stateUpdatedAt"` // Unix epoch seconds (ms precision) of last state change.
 	DiffStat                           DiffStat `json:"diffStat,omitzero"`
 	CostUSD                            float64  `json:"costUSD"`
-	DurationMs                         int64    `json:"durationMs"`
+	Duration                           float64  `json:"duration"` // Seconds.
 	NumTurns                           int      `json:"numTurns"`
 	CumulativeInputTokens              int      `json:"cumulativeInputTokens"`
 	CumulativeOutputTokens             int      `json:"cumulativeOutputTokens"`

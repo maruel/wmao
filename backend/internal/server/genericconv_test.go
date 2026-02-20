@@ -134,8 +134,8 @@ func TestGenericToolTiming(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].ToolResult.DurationMs != 500 {
-		t.Errorf("durationMs = %d, want 500", events[0].ToolResult.DurationMs)
+	if events[0].ToolResult.Duration != 0.5 {
+		t.Errorf("duration = %f, want 0.5", events[0].ToolResult.Duration)
 	}
 }
 

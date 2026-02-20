@@ -124,7 +124,7 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                 if (task.costUSD > 0) {
                     MetaText(formatCost(task.costUSD))
                 }
-                MetaText(formatElapsed(task.durationMs))
+                MetaText(formatElapsed(task.duration))
             }
 
             task.error?.let { error ->

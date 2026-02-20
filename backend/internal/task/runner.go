@@ -44,7 +44,7 @@ type Result struct {
 	State       State
 	DiffStat    agent.DiffStat
 	CostUSD     float64
-	DurationMs  int64
+	Duration    time.Duration
 	NumTurns    int
 	Usage       agent.Usage
 	AgentResult string
@@ -353,7 +353,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	}
 	if result != nil {
 		res.CostUSD = result.TotalCostUSD
-		res.DurationMs = result.DurationMs
+		res.Duration = time.Duration(result.DurationMs) * time.Millisecond
 		res.NumTurns = result.NumTurns
 		res.Usage = result.Usage
 		res.AgentResult = result.Result
@@ -364,7 +364,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	if liveCost, liveTurns, liveDur, liveUsage, _ := t.LiveStats(); liveCost > res.CostUSD {
 		res.CostUSD = liveCost
 		res.NumTurns = liveTurns
-		res.DurationMs = liveDur
+		res.Duration = liveDur
 		res.Usage = liveUsage
 	}
 	var logW io.WriteCloser
@@ -668,7 +668,7 @@ func writeLogTrailer(w io.Writer, res *Result) {
 		State:                    res.State.String(),
 		Title:                    res.Title,
 		CostUSD:                  res.CostUSD,
-		DurationMs:               res.DurationMs,
+		Duration:                 res.Duration.Seconds(),
 		NumTurns:                 res.NumTurns,
 		InputTokens:              res.Usage.InputTokens,
 		OutputTokens:             res.Usage.OutputTokens,

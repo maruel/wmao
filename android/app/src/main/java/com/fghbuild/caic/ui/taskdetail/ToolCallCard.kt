@@ -72,7 +72,7 @@ fun ToolCallCard(call: ToolCall, modifier: Modifier = Modifier) {
                 }
                 call.result?.let { result ->
                     Text(
-                        text = formatDuration(result.durationMs),
+                        text = formatDuration(result.duration),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

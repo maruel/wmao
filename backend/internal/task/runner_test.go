@@ -159,8 +159,8 @@ func TestRunner(t *testing.T) {
 			if result.NumTurns != 5 {
 				t.Errorf("NumTurns = %d, want 5", result.NumTurns)
 			}
-			if result.DurationMs != 12345 {
-				t.Errorf("DurationMs = %d, want 12345", result.DurationMs)
+			if result.Duration != 12345*time.Millisecond {
+				t.Errorf("Duration = %v, want %v", result.Duration, 12345*time.Millisecond)
 			}
 		})
 	})

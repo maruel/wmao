@@ -234,7 +234,7 @@ type MetaResultMessage struct {
 	State                    string   `json:"state"`
 	Title                    string   `json:"title,omitempty"`
 	CostUSD                  float64  `json:"cost_usd,omitempty"`
-	DurationMs               int64    `json:"duration_ms,omitempty"`
+	Duration                 float64  `json:"duration,omitempty"` // Seconds.
 	NumTurns                 int      `json:"num_turns,omitempty"`
 	InputTokens              int      `json:"input_tokens,omitempty"`
 	OutputTokens             int      `json:"output_tokens,omitempty"`

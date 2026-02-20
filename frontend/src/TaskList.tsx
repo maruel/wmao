@@ -52,7 +52,7 @@ export default function TaskList(props: TaskListProps) {
               model={t().model}
               agentVersion={t().agentVersion}
               costUSD={t().costUSD}
-              durationMs={t().durationMs}
+              duration={t().duration}
               numTurns={t().numTurns}
               activeInputTokens={t().activeInputTokens}
               activeCacheReadTokens={t().activeCacheReadTokens}

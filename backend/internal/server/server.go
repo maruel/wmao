@@ -988,7 +988,7 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		// Backfill result stats from restored messages when the trailer
 		// has zero cost (e.g. session exited without a final ResultMessage).
 		if lt.Result.CostUSD == 0 {
-			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs, lt.Result.Usage, _ = t.LiveStats()
+			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.Duration, lt.Result.Usage, _ = t.LiveStats()
 		}
 		done := make(chan struct{})
 		close(done)
@@ -1445,7 +1445,7 @@ func (s *Server) toJSON(e *taskEntry) dto.Task {
 		Display:        e.task.Display,
 		CostUSD:        snap.CostUSD,
 		NumTurns:       snap.NumTurns,
-		DurationMs:     snap.DurationMs,
+		Duration:       snap.Duration.Seconds(),
 	}
 	if !e.task.StartedAt.IsZero() {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()

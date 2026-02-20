@@ -35,9 +35,9 @@ class GroupingTest {
         toolUse = ClaudeEventToolUse(toolUseID = id, name = name, input = JsonObject(emptyMap())),
     )
 
-    private fun toolResultEvent(id: String, durationMs: Long = 100, ts: Long = 0) = ClaudeEventMessage(
+    private fun toolResultEvent(id: String, duration: Double = 0.1, ts: Long = 0) = ClaudeEventMessage(
         kind = EventKinds.ToolResult, ts = ts,
-        toolResult = ClaudeEventToolResult(toolUseID = id, durationMs = durationMs),
+        toolResult = ClaudeEventToolResult(toolUseID = id, duration = duration),
     )
 
     @Suppress("LongMethod")
@@ -45,7 +45,7 @@ class GroupingTest {
         kind = EventKinds.Result, ts = ts,
         result = ClaudeEventResult(
             subtype = "success", isError = false, result = "done",
-            totalCostUSD = 0.01, durationMs = 1000, durationAPIMs = 900,
+            totalCostUSD = 0.01, duration = 1.0, durationAPI = 0.9,
             numTurns = 1, usage = ClaudeEventUsage(
                 inputTokens = 100, outputTokens = 50,
                 cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",

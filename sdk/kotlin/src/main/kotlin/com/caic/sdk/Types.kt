@@ -80,7 +80,7 @@ data class Task(
     val stateUpdatedAt: Double,
     val diffStat: List<DiffFileStat>? = null,
     @SerialName("costUSD") val costUSD: Double,
-    val durationMs: Long,
+    val duration: Double,
     val numTurns: Int,
     val cumulativeInputTokens: Int,
     val cumulativeOutputTokens: Int,
@@ -147,7 +147,7 @@ data class ClaudeEventToolUse(
 @Serializable
 data class ClaudeEventToolResult(
     @SerialName("toolUseID") val toolUseID: String,
-    val durationMs: Long,
+    val duration: Double,
     val error: String? = null,
 )
 
@@ -185,8 +185,8 @@ data class ClaudeEventResult(
     val result: String,
     val diffStat: List<DiffFileStat>? = null,
     @SerialName("totalCostUSD") val totalCostUSD: Double,
-    val durationMs: Long,
-    @SerialName("durationAPIMs") val durationAPIMs: Long,
+    val duration: Double,
+    @SerialName("durationAPI") val durationAPI: Double,
     val numTurns: Int,
     val usage: ClaudeEventUsage,
 )
@@ -259,7 +259,7 @@ data class EventToolUse(
 @Serializable
 data class EventToolResult(
     @SerialName("toolUseID") val toolUseID: String,
-    val durationMs: Long,
+    val duration: Double,
     val error: String? = null,
 )
 
@@ -297,8 +297,8 @@ data class EventResult(
     val result: String,
     val diffStat: List<DiffFileStat>? = null,
     @SerialName("totalCostUSD") val totalCostUSD: Double,
-    val durationMs: Long,
-    @SerialName("durationAPIMs") val durationAPIMs: Long,
+    val duration: Double,
+    @SerialName("durationAPI") val durationAPI: Double,
     val numTurns: Int,
     val usage: EventUsage,
 )

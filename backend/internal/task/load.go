@@ -144,14 +144,14 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 				lt.Title = mr.Title
 			}
 			lt.Result = &Result{
-				Task:       lt.Prompt,
-				Title:      lt.Title,
-				Repo:       lt.Repo,
-				Branch:     lt.Branch,
-				State:      lt.State,
-				CostUSD:    mr.CostUSD,
-				DurationMs: mr.DurationMs,
-				NumTurns:   mr.NumTurns,
+				Task:     lt.Prompt,
+				Title:    lt.Title,
+				Repo:     lt.Repo,
+				Branch:   lt.Branch,
+				State:    lt.State,
+				CostUSD:  mr.CostUSD,
+				Duration: time.Duration(mr.Duration * float64(time.Second)),
+				NumTurns: mr.NumTurns,
 				Usage: agent.Usage{
 					InputTokens:              mr.InputTokens,
 					OutputTokens:             mr.OutputTokens,

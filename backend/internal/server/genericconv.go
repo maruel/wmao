@@ -62,14 +62,14 @@ func (gt *genericToolTimingTracker) convertMessage(msg agent.Message, now time.T
 			Kind: dto.EventKindResult,
 			Ts:   ts,
 			Result: &dto.EventResult{
-				Subtype:       m.Subtype,
-				IsError:       m.IsError,
-				Result:        m.Result,
-				DiffStat:      toDTODiffStat(m.DiffStat),
-				TotalCostUSD:  m.TotalCostUSD,
-				DurationMs:    m.DurationMs,
-				DurationAPIMs: m.DurationAPIMs,
-				NumTurns:      m.NumTurns,
+				Subtype:      m.Subtype,
+				IsError:      m.IsError,
+				Result:       m.Result,
+				DiffStat:     toDTODiffStat(m.DiffStat),
+				TotalCostUSD: m.TotalCostUSD,
+				Duration:     float64(m.DurationMs) / 1e3,
+				DurationAPI:  float64(m.DurationAPIMs) / 1e3,
+				NumTurns:     m.NumTurns,
 				Usage: dto.EventUsage{
 					InputTokens:              m.Usage.InputTokens,
 					OutputTokens:             m.Usage.OutputTokens,
@@ -175,9 +175,9 @@ func (gt *genericToolTimingTracker) convertUser(m *agent.UserMessage, ts int64, 
 		}}
 	}
 	toolUseID := *m.ParentToolUseID
-	var durationMs int64
+	var duration float64
 	if started, ok := gt.pending[toolUseID]; ok {
-		durationMs = now.Sub(started).Milliseconds()
+		duration = now.Sub(started).Seconds()
 		delete(gt.pending, toolUseID)
 	}
 	errText := extractToolError(m.Message)
@@ -185,9 +185,9 @@ func (gt *genericToolTimingTracker) convertUser(m *agent.UserMessage, ts int64, 
 		Kind: dto.EventKindToolResult,
 		Ts:   ts,
 		ToolResult: &dto.EventToolResult{
-			ToolUseID:  toolUseID,
-			DurationMs: durationMs,
-			Error:      errText,
+			ToolUseID: toolUseID,
+			Duration:  duration,
+			Error:     errText,
 		},
 	}}
 }

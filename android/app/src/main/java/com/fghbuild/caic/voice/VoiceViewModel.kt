@@ -99,7 +99,7 @@ class VoiceViewModel @Inject constructor(
         val lines = tasks.joinToString("\n") { task ->
             val num = taskNumberMap.toNumber(task.id) ?: 0
             val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
-            val base = "- Task #$num: $shortName (${task.state}, ${formatElapsed(task.durationMs)}" +
+            val base = "- Task #$num: $shortName (${task.state}, ${formatElapsed(task.duration)}" +
                 ", ${formatCost(task.costUSD)}, ${task.harness})"
             if (task.state == "asking") "$base — needs input" else base
         }

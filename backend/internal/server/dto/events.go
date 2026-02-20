@@ -90,9 +90,9 @@ type EventToolUse struct {
 
 // EventToolResult is emitted when a tool call completes.
 type EventToolResult struct {
-	ToolUseID  string `json:"toolUseID"`
-	DurationMs int64  `json:"durationMs"` // Server-computed; 0 if unknown.
-	Error      string `json:"error,omitempty"`
+	ToolUseID string  `json:"toolUseID"`
+	Duration  float64 `json:"duration"` // Seconds; server-computed; 0 if unknown.
+	Error     string  `json:"error,omitempty"`
 }
 
 // AskOption is a single option in an AskUserQuestion.
@@ -127,15 +127,15 @@ type EventUsage struct {
 
 // EventResult is emitted when the task reaches a terminal state.
 type EventResult struct {
-	Subtype       string     `json:"subtype"`
-	IsError       bool       `json:"isError"`
-	Result        string     `json:"result"`
-	DiffStat      DiffStat   `json:"diffStat,omitzero"`
-	TotalCostUSD  float64    `json:"totalCostUSD"`
-	DurationMs    int64      `json:"durationMs"`
-	DurationAPIMs int64      `json:"durationAPIMs"`
-	NumTurns      int        `json:"numTurns"`
-	Usage         EventUsage `json:"usage"`
+	Subtype      string     `json:"subtype"`
+	IsError      bool       `json:"isError"`
+	Result       string     `json:"result"`
+	DiffStat     DiffStat   `json:"diffStat,omitzero"`
+	TotalCostUSD float64    `json:"totalCostUSD"`
+	Duration     float64    `json:"duration"`    // Seconds.
+	DurationAPI  float64    `json:"durationAPI"` // Seconds.
+	NumTurns     int        `json:"numTurns"`
+	Usage        EventUsage `json:"usage"`
 }
 
 // EventSystem is a system event (status, compact_boundary, etc.).
@@ -241,9 +241,9 @@ type ClaudeEventToolUse struct {
 
 // ClaudeEventToolResult is emitted when a Claude tool call completes.
 type ClaudeEventToolResult struct {
-	ToolUseID  string `json:"toolUseID"`
-	DurationMs int64  `json:"durationMs"`
-	Error      string `json:"error,omitempty"`
+	ToolUseID string  `json:"toolUseID"`
+	Duration  float64 `json:"duration"` // Seconds; server-computed; 0 if unknown.
+	Error     string  `json:"error,omitempty"`
 }
 
 // ClaudeAskOption is a single option in a Claude AskUserQuestion.
@@ -278,15 +278,15 @@ type ClaudeEventUsage struct {
 
 // ClaudeEventResult is emitted when a Claude task reaches a terminal state.
 type ClaudeEventResult struct {
-	Subtype       string           `json:"subtype"`
-	IsError       bool             `json:"isError"`
-	Result        string           `json:"result"`
-	DiffStat      DiffStat         `json:"diffStat,omitzero"`
-	TotalCostUSD  float64          `json:"totalCostUSD"`
-	DurationMs    int64            `json:"durationMs"`
-	DurationAPIMs int64            `json:"durationAPIMs"`
-	NumTurns      int              `json:"numTurns"`
-	Usage         ClaudeEventUsage `json:"usage"`
+	Subtype      string           `json:"subtype"`
+	IsError      bool             `json:"isError"`
+	Result       string           `json:"result"`
+	DiffStat     DiffStat         `json:"diffStat,omitzero"`
+	TotalCostUSD float64          `json:"totalCostUSD"`
+	Duration     float64          `json:"duration"`    // Seconds.
+	DurationAPI  float64          `json:"durationAPI"` // Seconds.
+	NumTurns     int              `json:"numTurns"`
+	Usage        ClaudeEventUsage `json:"usage"`
 }
 
 // ClaudeEventSystem is a system event in the Claude raw stream.

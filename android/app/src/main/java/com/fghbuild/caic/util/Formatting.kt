@@ -18,18 +18,18 @@ fun formatCost(usd: Double): String = when {
     else -> "$${String.format(Locale.US, "%.2f", usd)}"
 }
 
-fun formatElapsed(ms: Long): String {
-    val seconds = ms / 1000
+fun formatElapsed(seconds: Double): String {
+    val s = seconds.toLong()
     return when {
-        seconds >= 3600 -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
-        seconds >= 60 -> "${seconds / 60}m ${seconds % 60}s"
-        else -> "${seconds}s"
+        s >= 3600 -> "${s / 3600}h ${(s % 3600) / 60}m"
+        s >= 60 -> "${s / 60}m ${s % 60}s"
+        else -> "${s}s"
     }
 }
 
-fun formatDuration(ms: Long): String = when {
-    ms < 1000 -> "${ms}ms"
-    else -> "${String.format(Locale.US, "%.1f", ms / 1000.0)}s"
+fun formatDuration(seconds: Double): String = when {
+    seconds < 1 -> "${(seconds * 1000).toInt()}ms"
+    else -> "${String.format(Locale.US, "%.1f", seconds)}s"
 }
 
 private const val MAX_BASH_DETAIL = 60

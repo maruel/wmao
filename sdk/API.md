@@ -107,7 +107,7 @@ All errors return:
 | `stateUpdatedAt` | `number` | yes |
 | `diffStat` | `DiffFileStat[]` |  |
 | `costUSD` | `number` | yes |
-| `durationMs` | `number` | yes |
+| `duration` | `number` | yes |
 | `numTurns` | `number` | yes |
 | `cumulativeInputTokens` | `number` | yes |
 | `cumulativeOutputTokens` | `number` | yes |
@@ -196,7 +196,7 @@ All errors return:
 | Field | Type | Required |
 |-------|------|----------|
 | `toolUseID` | `string` | yes |
-| `durationMs` | `number` | yes |
+| `duration` | `number` | yes |
 | `error` | `string` |  |
 
 ### ClaudeAskOption
@@ -242,8 +242,8 @@ All errors return:
 | `result` | `string` | yes |
 | `diffStat` | `DiffFileStat[]` |  |
 | `totalCostUSD` | `number` | yes |
-| `durationMs` | `number` | yes |
-| `durationAPIMs` | `number` | yes |
+| `duration` | `number` | yes |
+| `durationAPI` | `number` | yes |
 | `numTurns` | `number` | yes |
 | `usage` | `ClaudeEventUsage` | yes |
 
@@ -336,7 +336,7 @@ All errors return:
 | Field | Type | Required |
 |-------|------|----------|
 | `toolUseID` | `string` | yes |
-| `durationMs` | `number` | yes |
+| `duration` | `number` | yes |
 | `error` | `string` |  |
 
 ### AskOption
@@ -382,8 +382,8 @@ All errors return:
 | `result` | `string` | yes |
 | `diffStat` | `DiffFileStat[]` |  |
 | `totalCostUSD` | `number` | yes |
-| `durationMs` | `number` | yes |
-| `durationAPIMs` | `number` | yes |
+| `duration` | `number` | yes |
+| `durationAPI` | `number` | yes |
 | `numTurns` | `number` | yes |
 | `usage` | `EventUsage` | yes |
 

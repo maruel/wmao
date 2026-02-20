@@ -63,8 +63,8 @@ class FormattingTest {
 
     @Test
     fun testFormatDuration() {
-        t.run("milliseconds") { assertEquals("500ms", formatDuration(500)) }
-        t.run("seconds") { assertEquals("1.5s", formatDuration(1500)) }
+        t.run("milliseconds") { assertEquals("500ms", formatDuration(0.5)) }
+        t.run("seconds") { assertEquals("1.5s", formatDuration(1.5)) }
     }
 
     private fun assertTrue(condition: Boolean) {

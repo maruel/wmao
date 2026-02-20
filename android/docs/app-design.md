@@ -405,7 +405,7 @@ Owns Gemini Live session lifecycle. Bridges voice ↔ caic API.
     "costUSD": 0.43,
     "inputTokens": 10000,
     "outputTokens": 2345,
-    "durationMs": 720000,
+    "duration": 720,
     "repo": "my-repo",
     "branch": "fix-auth-bug",
     "error": "",
@@ -733,8 +733,8 @@ val waitingStates = setOf("waiting", "asking")
 
 ```kotlin
 fun formatTokens(n: Int): String  // see above
-fun formatDuration(ms: Long): String  // "3.1s", "120ms"
-fun formatElapsed(ms: Long): String   // "1h 15m", "2m 30s", "15s"
+fun formatDuration(seconds: Double): String  // "3.1s", "120ms"
+fun formatElapsed(seconds: Double): String   // "1h 15m", "2m 30s", "15s"
 fun formatCost(usd: Double): String   // "$1.23", "<$0.01"
 ```
 

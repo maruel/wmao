@@ -108,12 +108,12 @@ type Task struct {
 	resultNotify chan struct{}  // signaled (non-blocking) when a ResultMessage arrives
 
 	// Live stats accumulated from ResultMessages during execution.
-	liveCostUSD    float64
-	liveNumTurns   int
-	liveDurationMs int64
-	liveUsage      agent.Usage
-	lastUsage      agent.Usage    // Most recent ResultMessage usage (active context).
-	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
+	liveCostUSD  float64
+	liveNumTurns int
+	liveDuration time.Duration
+	liveUsage    agent.Usage
+	lastUsage    agent.Usage    // Most recent ResultMessage usage (active context).
+	liveDiffStat agent.DiffStat // Updated by DiffStatMessage from relay.
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -144,10 +144,10 @@ func (t *Task) SetStateIf(expected, next State) bool {
 
 // LiveStats returns the latest cost, turn count, duration, cumulative token
 // usage, and the most recent turn's usage (active context).
-func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, cumulativeUsage, lastTurnUsage agent.Usage) {
+func (t *Task) LiveStats() (costUSD float64, numTurns int, duration time.Duration, cumulativeUsage, lastTurnUsage agent.Usage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs, t.liveUsage, t.lastUsage
+	return t.liveCostUSD, t.liveNumTurns, t.liveDuration, t.liveUsage, t.lastUsage
 }
 
 // LiveDiffStat returns the latest diff stat from the relay's periodic polling.
@@ -201,7 +201,7 @@ type Snapshot struct {
 	PlanFile       string
 	CostUSD        float64
 	NumTurns       int
-	DurationMs     int64
+	Duration       time.Duration
 	Usage          agent.Usage
 	LastUsage      agent.Usage
 	DiffStat       agent.DiffStat
@@ -222,7 +222,7 @@ func (t *Task) Snapshot() Snapshot {
 		PlanFile:       t.PlanFile,
 		CostUSD:        t.liveCostUSD,
 		NumTurns:       t.liveNumTurns,
-		DurationMs:     t.liveDurationMs,
+		Duration:       t.liveDuration,
 		Usage:          t.liveUsage,
 		LastUsage:      t.lastUsage,
 		DiffStat:       t.liveDiffStat,
@@ -285,7 +285,7 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		}
 		t.liveCostUSD = rm.TotalCostUSD
 		t.liveNumTurns = rm.NumTurns
-		t.liveDurationMs = rm.DurationMs
+		t.liveDuration = time.Duration(rm.DurationMs) * time.Millisecond
 		t.liveUsage.InputTokens += rm.Usage.InputTokens
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
@@ -340,7 +340,7 @@ func (t *Task) addMessage(m agent.Message) {
 	if rm, ok := m.(*agent.ResultMessage); ok {
 		t.liveCostUSD = rm.TotalCostUSD
 		t.liveNumTurns = rm.NumTurns
-		t.liveDurationMs = rm.DurationMs
+		t.liveDuration = time.Duration(rm.DurationMs) * time.Millisecond
 		t.liveUsage.InputTokens += rm.Usage.InputTokens
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
@@ -474,7 +474,7 @@ func (t *Task) ClearMessages() {
 	t.SessionID = ""
 	t.liveCostUSD = 0
 	t.liveNumTurns = 0
-	t.liveDurationMs = 0
+	t.liveDuration = 0
 }
 
 // syntheticUserInput creates a UserMessage representing user-provided text

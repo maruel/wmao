@@ -88,7 +88,7 @@ class FunctionHandlers(
             appendLine("## Task #$num: $shortName")
             appendLine()
             append("**State:** ${t.state}  ")
-            append("**Elapsed:** ${formatElapsed(t.durationMs)}  ")
+            append("**Elapsed:** ${formatElapsed(t.duration)}  ")
             appendLine("**Cost:** ${formatCost(t.costUSD)}")
             when {
                 t.state == "asking" -> appendLine("Waiting for user input before it can continue.")
@@ -184,7 +184,7 @@ class FunctionHandlers(
 
 private fun taskSummaryLine(num: Int, t: Task): String {
     val name = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
-    val base = "$num. **$name** — ${t.state}, ${formatElapsed(t.durationMs)}, " +
+    val base = "$num. **$name** — ${t.state}, ${formatElapsed(t.duration)}, " +
         "${formatCost(t.costUSD)}, ${t.harness}"
     return when {
         t.state == "asking" -> "$base — NEEDS INPUT"

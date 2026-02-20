@@ -651,7 +651,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
 			MessageType: "caic_result", State: "terminated",
-			CostUSD: 1.23, DurationMs: 5000, NumTurns: 3,
+			CostUSD: 1.23, Duration: 5, NumTurns: 3,
 		})
 		writeLogFile(t, logDir, "task.jsonl", meta, initMsg, result, trailer)
 
@@ -675,8 +675,8 @@ func TestLoadTerminatedTasks(t *testing.T) {
 			if j.CostUSD != 1.23 {
 				t.Errorf("CostUSD = %f, want 1.23", j.CostUSD)
 			}
-			if j.DurationMs != 5000 {
-				t.Errorf("DurationMs = %d, want 5000", j.DurationMs)
+			if j.Duration != 5 {
+				t.Errorf("Duration = %f, want 5", j.Duration)
 			}
 			if j.NumTurns != 3 {
 				t.Errorf("NumTurns = %d, want 3", j.NumTurns)
@@ -704,7 +704,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		})
 		result := mustJSON(t, agent.ResultMessage{
 			MessageType: "result", Subtype: "success", Result: "done",
-			TotalCostUSD: 0.42, DurationMs: 3000, NumTurns: 2,
+			TotalCostUSD: 0.42, DurationMs: 3000, NumTurns: 2, // DurationMs is agent wire format (int64 ms).
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
 			MessageType: "caic_result", State: "terminated",
@@ -735,8 +735,8 @@ func TestLoadTerminatedTasks(t *testing.T) {
 			if j.NumTurns != 2 {
 				t.Errorf("NumTurns = %d, want 2", j.NumTurns)
 			}
-			if j.DurationMs != 3000 {
-				t.Errorf("DurationMs = %d, want 3000", j.DurationMs)
+			if j.Duration != 3 {
+				t.Errorf("Duration = %f, want 3", j.Duration)
 			}
 		}
 	})
@@ -809,7 +809,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 			MessageType: "result", Subtype: "success", Result: "done", TotalCostUSD: 0.05, DurationMs: 1000, NumTurns: 1,
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
-			MessageType: "caic_result", State: "terminated", CostUSD: 0.05, DurationMs: 1000,
+			MessageType: "caic_result", State: "terminated", CostUSD: 0.05, Duration: 1,
 		})
 		writeLogFile(t, logDir, "task.jsonl", meta, initMsg, assistant, result, trailer)
 
@@ -915,7 +915,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 			MessageType: "result", Subtype: "success", Result: "done", TotalCostUSD: 0.02, DurationMs: 200, NumTurns: 1,
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
-			MessageType: "caic_result", State: "terminated", CostUSD: 0.02, DurationMs: 200,
+			MessageType: "caic_result", State: "terminated", CostUSD: 0.02, Duration: 0.2,
 		})
 		writeLogFile(t, logDir, "task.jsonl", meta, initMsg, msgStart, delta1, delta2, assistant, result, trailer)
 
