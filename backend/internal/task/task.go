@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
+	"github.com/maruel/genai"
 	"github.com/maruel/ksid"
 )
 
@@ -87,6 +89,7 @@ type Task struct {
 	Display       bool          // Enable Xvfb display in the container.
 	MaxTurns      int           // Maximum number of turns before task is terminated.
 	StartedAt     time.Time     // When the task was created.
+	Provider      genai.Provider
 
 	// Write-once fields — set during setup/adoption, never modified after.
 	Branch        string
@@ -107,7 +110,6 @@ type Task struct {
 	msgs           []agent.Message
 	subs           []*sub         // active SSE subscribers
 	handle         *SessionHandle // current active session; nil when no session is attached
-	resultNotify   chan struct{}  // signaled (non-blocking) when a ResultMessage arrives
 	liveCostUSD    float64
 	liveNumTurns   int
 	liveDuration   time.Duration
@@ -210,29 +212,6 @@ func (t *Task) Title() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.title
-}
-
-// SetTitle sets the LLM-generated title under the mutex. Empty strings are
-// ignored to preserve the Prompt fallback invariant.
-func (t *Task) SetTitle(title string) {
-	if title == "" {
-		return
-	}
-	t.mu.Lock()
-	t.title = title
-	t.mu.Unlock()
-}
-
-// ResultNotify returns a channel that receives a signal each time a
-// ResultMessage is processed. The channel is buffered(1) so senders
-// never block; receivers should drain in a loop.
-func (t *Task) ResultNotify() <-chan struct{} {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.resultNotify == nil {
-		t.resultNotify = make(chan struct{}, 1)
-	}
-	return t.resultNotify
 }
 
 // Snapshot holds volatile task fields read under the mutex. Used by the
@@ -419,13 +398,7 @@ func (t *Task) addMessage(m agent.Message) {
 				t.setState(StateWaiting)
 			}
 		}
-		// Signal title generation goroutine (non-blocking).
-		if t.resultNotify != nil {
-			select {
-			case t.resultNotify <- struct{}{}:
-			default:
-			}
-		}
+		go t.GenerateTitle(context.Background())
 	}
 	// Fan out to subscribers (non-blocking).
 	for i := 0; i < len(t.subs); i++ {
@@ -737,4 +710,66 @@ func (t *Task) SendInput(p agent.Prompt) error {
 	}
 	t.addMessage(syntheticUserInput(p))
 	return h.Session.Send(p)
+}
+
+const titleSystemPrompt = "Summarize this coding task conversation in 3-8 words as a short title. Reply with ONLY the title, no quotes."
+
+// SetTitle sets the title under the mutex. Empty strings are ignored to
+// preserve the prompt-fallback invariant.
+func (t *Task) SetTitle(title string) {
+	if title == "" {
+		return
+	}
+	t.mu.Lock()
+	t.title = title
+	t.mu.Unlock()
+}
+
+// GenerateTitle asks the LLM for a short title from the prompt and any result
+// messages. No-op when the provider is unconfigured.
+func (t *Task) GenerateTitle(ctx context.Context) {
+	if t.Provider == nil {
+		return
+	}
+	msgs := t.Messages()
+	var b strings.Builder
+	for _, m := range msgs {
+		if v, ok := m.(*agent.ResultMessage); ok && v.Result != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString("Result: ")
+			b.WriteString(v.Result)
+		}
+	}
+	// Prepend the original prompt.
+	// TODO: Use the images too.
+	input := "Prompt: " + t.InitialPrompt.Text
+	if b.Len() > 0 {
+		input += "\n" + b.String()
+	}
+	// Truncate to keep it working on most providers.
+	const maxChars = 50000
+	if len(input) > maxChars {
+		input = input[:maxChars]
+	}
+
+	start := time.Now()
+	res, err := t.Provider.GenSync(ctx,
+		genai.Messages{genai.NewTextMessage(input)},
+		&genai.GenOptionText{SystemPrompt: titleSystemPrompt},
+	)
+	d := time.Since(start).Round(time.Millisecond)
+	if err != nil {
+		slog.Warn("title generation failed", "task", t.ID, "err", err, "d", d)
+		return
+	}
+	// Strip surrounding quotes if the model adds them despite instructions.
+	title := strings.Trim(strings.TrimSpace(res.String()), "\"'`")
+	if title == "" {
+		slog.Warn("title generation returned empty", "task", t.ID, "d", d, "raw", res.String())
+		return
+	}
+	slog.Info("title generated", "task", t.ID, "title", title, "d", d)
+	t.SetTitle(title)
 }

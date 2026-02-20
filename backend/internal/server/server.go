@@ -28,6 +28,8 @@ import (
 	"github.com/maruel/caic/backend/internal/server/dto"
 	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/caic/backend/internal/task"
+	"github.com/maruel/genai"
+	"github.com/maruel/genai/providers"
 	"github.com/maruel/ksid"
 	"github.com/maruel/md"
 )
@@ -79,7 +81,7 @@ type Server struct {
 	logDir       string
 	usage        *usageFetcher // nil if no OAuth token available
 	geminiAPIKey string
-	titleGen     *titleGenerator
+	provider     genai.Provider
 }
 
 // mdBackend adapts *md.Client to task.ContainerBackend.
@@ -208,10 +210,27 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		logDir:       logDir,
 		usage:        newUsageFetcher(ctx),
 		geminiAPIKey: cfg.GeminiAPIKey,
-		titleGen:     newTitleGenerator(ctx, cfg.LLMProvider, cfg.LLMModel),
+		mdClient:     mdClient,
+	}
+	if cfg.LLMProvider != "" {
+		if c, ok := providers.All[cfg.LLMProvider]; !ok || c.Factory == nil {
+			slog.Warn("unknown LLM provider for title generation", "provider", cfg.LLMProvider)
+		} else {
+			var opts []genai.ProviderOption
+			if cfg.LLMModel != "" {
+				opts = append(opts, genai.ProviderOptionModel(cfg.LLMModel))
+			} else {
+				opts = append(opts, genai.ModelCheap)
+			}
+			if p, err := c.Factory(ctx, opts...); err != nil {
+				slog.Warn("failed to create LLM provider for title generation", "provider", cfg.LLMProvider, "err", err)
+			} else {
+				slog.Info("title generation enabled", "provider", p.Name(), "model", p.ModelID())
+				s.provider = p
+			}
+		}
 	}
 
-	s.mdClient = mdClient
 	backend := &mdBackend{client: mdClient, llmProvider: cfg.LLMProvider, llmModel: cfg.LLMModel}
 
 	// Phase 2: Runner init (parallel per-repo).
@@ -402,7 +421,7 @@ func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]v1.Task, erro
 	return &out, nil
 }
 
-func (s *Server) createTask(_ context.Context, req *v1.CreateTaskReq) (*v1.CreateTaskResp, error) {
+func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.CreateTaskResp, error) {
 	runner, ok := s.runners[req.Repo]
 	if !ok {
 		return nil, dto.BadRequest("unknown repo: " + req.Repo)
@@ -422,8 +441,9 @@ func (s *Server) createTask(_ context.Context, req *v1.CreateTaskReq) (*v1.Creat
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC()}
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), Provider: s.provider}
 	t.SetTitle(req.InitialPrompt.Text)
+	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
@@ -446,7 +466,6 @@ func (s *Server) createTask(_ context.Context, req *v1.CreateTaskReq) (*v1.Creat
 		s.watchSession(entry, runner, h)
 	}()
 
-	s.watchTitleGen(entry)
 	return &v1.CreateTaskResp{Status: "accepted", ID: t.ID}, nil
 }
 
@@ -1011,6 +1030,7 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		} else {
 			t.SetTitle(lt.Prompt)
 		}
+		// TODO: Figure out when it was terminated.
 		if lt.Msgs != nil {
 			t.RestoreMessages(lt.Msgs)
 		}
@@ -1164,8 +1184,11 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		TailscaleFQDN: c.TailscaleFQDN(ctx),
 		USB:           c.USB,
 		Display:       c.Display,
+		Provider:      s.provider,
 	}
 	t.SetStateAt(task.StateRunning, stateUpdatedAt)
+	// Set an immediate fallback title; GenerateTitle is fired async below
+	// after messages are restored so the LLM sees the full conversation.
 	if lt != nil && lt.Title != "" {
 		t.SetTitle(lt.Title)
 	} else {
@@ -1216,7 +1239,9 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		"repo", ri.RelPath, "container", c.Name, "branch", branch,
 		"relay", relayAlive, "state", t.GetState(), "sessionID", t.GetSessionID())
 
-	s.watchTitleGen(entry)
+	// Regenerate title async — relay may have new conversation data since the
+	// log was written. The fallback title is already set above.
+	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive adoption
 
 	// Auto-reconnect in background: relay alive → attach; relay dead
 	// but SessionID present → --resume. Reconnect handles both paths
@@ -1295,54 +1320,6 @@ func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.Ses
 			t.SetStateIf(task.StateRunning, task.StateWaiting)
 			s.notifyTaskChange()
 		case <-entry.done:
-		}
-	}()
-}
-
-// watchTitleGen starts a goroutine that generates and updates the task's title
-// each time a ResultMessage arrives (signaled via ResultNotify). The goroutine
-// exits when the task is done. No-op if the title generator is unconfigured.
-//
-// Rate limiting: the first ResultMessage always triggers generation. Subsequent
-// results are throttled to at most once per 60 seconds to avoid hammering the
-// LLM during rapid multi-turn conversations.
-func (s *Server) watchTitleGen(entry *taskEntry) {
-	if s.titleGen == nil || s.titleGen.provider == nil {
-		return
-	}
-	t := entry.task
-	resultCh := t.ResultNotify()
-	slog.Info("title gen: watching", "task", t.ID, "hasTitle", t.Title() != "")
-	go func() {
-		// Debounce: wait 5s after the last result before generating a title.
-		// This coalesces rapid bursts while still updating after each pause.
-		const debounce = 5 * time.Second
-		timer := time.NewTimer(debounce)
-		if t.Title() != "" {
-			// Already have a title (e.g. adopted from log); wait for new results.
-			timer.Stop()
-		}
-		defer timer.Stop()
-		for {
-			select {
-			case _, ok := <-resultCh:
-				if !ok {
-					slog.Info("title gen: resultCh closed", "task", t.ID)
-					return
-				}
-				slog.Info("title gen: result received, resetting debounce", "task", t.ID)
-				timer.Reset(debounce)
-			case <-timer.C:
-				old := t.Title()
-				title := s.titleGen.generate(s.ctx, t)
-				if title != "" {
-					slog.Info("title generation completed", "task", t.ID, "old", old, "new", title)
-					t.SetTitle(title)
-					s.notifyTaskChange()
-				}
-			case <-entry.done:
-				return
-			}
 		}
 	}()
 }
