@@ -368,6 +368,12 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 		res.Duration = liveDur
 		res.Usage = liveUsage
 	}
+	// Use the relay's live diff stat. The ResultMessage.DiffStat is set
+	// by startMessageDispatch during normal flow, but Cleanup may run
+	// without a ResultMessage (e.g. user-initiated termination).
+	if ds := t.LiveDiffStat(); len(ds) > 0 {
+		res.DiffStat = ds
+	}
 	var logW io.WriteCloser
 	if h != nil {
 		logW = h.LogW

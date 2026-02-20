@@ -100,6 +100,14 @@
   color: #888;
 }
 
+.diffAdded {
+  color: #22863a;
+}
+
+.diffDeleted {
+  color: #cb2431;
+}
+
 .error {
   color: red;
   font-size: 0.8rem;

@@ -29,7 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.Harnesses
@@ -40,6 +43,8 @@ import com.fghbuild.caic.util.formatElapsed
 import com.fghbuild.caic.util.formatTokens
 import kotlinx.coroutines.delay
 
+private val DiffAddedColor = Color(0xFF22863A)
+private val DiffDeletedColor = Color(0xFFCB2431)
 private val PlanBadgeBg = Color(0xFFEDE9FE)
 private val PlanBadgeFg = Color(0xFF7C3AED)
 private val TerminalStates = setOf("terminated", "failed")
@@ -125,6 +130,22 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                     MetaText(formatCost(task.costUSD))
                 }
                 MetaText(formatElapsed(task.duration))
+            }
+
+            task.diffStat?.takeIf { it.isNotEmpty() }?.let { stats ->
+                val files = stats.size
+                val added = stats.sumOf { it.added }
+                val deleted = stats.sumOf { it.deleted }
+                Text(
+                    text = buildAnnotatedString {
+                        append("$files file${if (files != 1) "s" else ""} ")
+                        withStyle(SpanStyle(color = DiffAddedColor)) { append("+$added") }
+                        append(" ")
+                        withStyle(SpanStyle(color = DiffDeletedColor)) { append("-$deleted") }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             task.error?.let { error ->

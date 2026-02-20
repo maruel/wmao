@@ -163,6 +163,41 @@ func TestRunner(t *testing.T) {
 				t.Errorf("Duration = %v, want %v", result.Duration, 12345*time.Millisecond)
 			}
 		})
+
+		t.Run("UsesLiveDiffStat", func(t *testing.T) {
+			clone := initTestRepo(t, "main")
+			r := &Runner{
+				BaseBranch: "main",
+				Dir:        clone,
+			}
+
+			tk := &Task{
+				ID:            ksid.NewID(),
+				InitialPrompt: agent.Prompt{Text: "test"},
+				Repo:          "org/repo",
+				Branch:        "main",
+				State:         StateRunning,
+			}
+
+			// Restore messages including a DiffStatMessage (simulates relay output).
+			tk.RestoreMessages([]agent.Message{
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat: agent.DiffStat{
+						{Path: "a.go", Added: 10, Deleted: 3},
+						{Path: "b.go", Added: 5, Deleted: 0},
+					},
+				},
+			})
+
+			result := r.Cleanup(t.Context(), tk, StateTerminated)
+			if len(result.DiffStat) != 2 {
+				t.Fatalf("DiffStat has %d entries, want 2", len(result.DiffStat))
+			}
+			if result.DiffStat[0].Path != "a.go" || result.DiffStat[0].Added != 10 {
+				t.Errorf("DiffStat[0] = %+v, want {a.go 10 3}", result.DiffStat[0])
+			}
+		})
 	})
 
 	t.Run("openLog", func(t *testing.T) {

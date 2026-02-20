@@ -58,6 +58,7 @@ export default function TaskList(props: TaskListProps) {
               activeCacheReadTokens={t().activeCacheReadTokens}
               cumulativeOutputTokens={t().cumulativeOutputTokens}
               containerUptimeMs={t().containerUptimeMs}
+              diffStat={t().diffStat}
               error={t().error}
               inPlanMode={t().inPlanMode}
               tailscale={t().tailscale}

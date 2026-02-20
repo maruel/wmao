@@ -1,6 +1,7 @@
 // Compact summary card for a single task, used in the sidebar task list.
 import { Show } from "solid-js";
 import type { Accessor } from "solid-js";
+import type { DiffStat } from "@sdk/types.gen";
 import Tooltip from "./Tooltip";
 import TailscaleIcon from "./tailscale.svg?solid";
 import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
@@ -25,6 +26,7 @@ export interface TaskItemSummaryProps {
   activeCacheReadTokens: number;
   cumulativeOutputTokens: number;
   containerUptimeMs?: number;
+  diffStat?: DiffStat;
   error?: string;
   inPlanMode?: boolean;
   tailscale?: string;
@@ -100,6 +102,17 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
             <span class={styles.duration}>{formatUptime(props.containerUptimeMs ?? 0)}</span>
           </Show>
         </div>
+      </Show>
+      <Show when={props.diffStat?.length ? props.diffStat : undefined} keyed>
+        {(ds) => (
+          <div class={styles.meta}>
+            {ds.length} file{ds.length !== 1 ? "s" : ""}
+            {" "}
+            <span class={styles.diffAdded}>+{ds.reduce((s, f) => s + f.added, 0)}</span>
+            {" "}
+            <span class={styles.diffDeleted}>-{ds.reduce((s, f) => s + f.deleted, 0)}</span>
+          </div>
+        )}
       </Show>
       <Show when={props.error}>
         <div class={styles.error}>{props.error}</div>

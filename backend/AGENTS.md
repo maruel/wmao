@@ -12,6 +12,11 @@ Go backend for caic. Packages under `internal/` are private.
 - Serialize git operations that touch the working directory (branch checkout, push).
 - Use subtests (`t.Run`) to group related test cases under a single `Test*` function.
 
+## Container Adoption
+
+Adopted containers (preexisting containers found on server restart) have the relay running inside them. This
+permits the user to restart the server, e.g. for a software update, without losing their coding sessions.
+
 ## References
 
 Claude Code headless:
