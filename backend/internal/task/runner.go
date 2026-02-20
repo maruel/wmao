@@ -275,7 +275,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(t.InitialPrompt))
+	t.addMessage(ctx, syntheticUserInput(t.InitialPrompt))
 	t.SetState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
 	return h, nil
@@ -526,7 +526,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	}
 
 	// 2. Clear in-memory messages (sends context_cleared to subscribers).
-	t.ClearMessages()
+	t.ClearMessages(ctx)
 
 	// 3. Open new log segment.
 	logW, err := r.openLog(t)
@@ -564,7 +564,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(prompt))
+	t.addMessage(ctx, syntheticUserInput(prompt))
 
 	t.SetState(StateRunning)
 	slog.Info("agent restarted", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
@@ -648,7 +648,7 @@ func (r *Runner) startMessageDispatch(ctx context.Context, t *Task) chan agent.M
 					fetchCancel()
 				}
 			}
-			t.addMessage(m)
+			t.addMessage(ctx, m)
 		}
 	}()
 	return msgCh
@@ -670,7 +670,7 @@ func (r *Runner) fetchDiffStat(ctx context.Context, t *Task) {
 	if len(ds) == 0 {
 		return
 	}
-	t.addMessage(&agent.DiffStatMessage{
+	t.addMessage(ctx, &agent.DiffStatMessage{
 		MessageType: "caic_diff_stat",
 		DiffStat:    ds,
 	})

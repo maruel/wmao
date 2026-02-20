@@ -346,7 +346,7 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	}
 }
 
-func (t *Task) addMessage(m agent.Message) {
+func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)
@@ -398,7 +398,7 @@ func (t *Task) addMessage(m agent.Message) {
 				t.setState(StateWaiting)
 			}
 		}
-		go t.GenerateTitle(context.Background())
+		go t.GenerateTitle(ctx)
 	}
 	// Fan out to subscribers (non-blocking).
 	for i := 0; i < len(t.subs); i++ {
@@ -500,8 +500,8 @@ func (t *Task) CloseAndDetachSession() *SessionHandle {
 // ClearMessages injects a context_cleared boundary marker into the message
 // stream and resets live stats. Message history is preserved so that SSE
 // subscribers (including reconnecting clients) can see the full timeline.
-func (t *Task) ClearMessages() {
-	t.addMessage(syntheticContextCleared())
+func (t *Task) ClearMessages(ctx context.Context) {
+	t.addMessage(ctx, syntheticContextCleared())
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -688,7 +688,7 @@ const (
 // (e.g. relay died vs. never connected). The session watcher now handles
 // dead-session detection proactively, so SendInput no longer does lazy
 // cleanup.
-func (t *Task) SendInput(p agent.Prompt) error {
+func (t *Task) SendInput(ctx context.Context, p agent.Prompt) error {
 	t.mu.Lock()
 	h := t.handle
 	sessionStatus := SessionNone
@@ -708,7 +708,7 @@ func (t *Task) SendInput(p agent.Prompt) error {
 	if h == nil {
 		return fmt.Errorf("no active session (state=%s session=%s)", state, sessionStatus)
 	}
-	t.addMessage(syntheticUserInput(p))
+	t.addMessage(ctx, syntheticUserInput(p))
 	return h.Session.Send(p)
 }
 

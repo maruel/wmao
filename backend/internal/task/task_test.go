@@ -24,10 +24,10 @@ func TestTask(t *testing.T) {
 
 			// Fill the subscriber buffer (256) so the next send overflows.
 			for range 256 {
-				tk.addMessage(&agent.SystemMessage{MessageType: "system", Subtype: "status"})
+				tk.addMessage(t.Context(), &agent.SystemMessage{MessageType: "system", Subtype: "status"})
 			}
 			// This send should trigger the slow-subscriber drop+close.
-			tk.addMessage(&agent.SystemMessage{MessageType: "system", Subtype: "status"})
+			tk.addMessage(t.Context(), &agent.SystemMessage{MessageType: "system", Subtype: "status"})
 
 			// Drain to confirm channel was closed by fan-out.
 			for range ch {
@@ -43,8 +43,8 @@ func TestTask(t *testing.T) {
 			// Add messages before subscribing.
 			msg1 := &agent.SystemMessage{MessageType: "system", Subtype: "status"}
 			msg2 := &agent.AssistantMessage{MessageType: "assistant"}
-			tk.addMessage(msg1)
-			tk.addMessage(msg2)
+			tk.addMessage(t.Context(), msg1)
+			tk.addMessage(t.Context(), msg2)
 
 			history, ch, unsub := tk.Subscribe(t.Context())
 			defer unsub()
@@ -65,7 +65,7 @@ func TestTask(t *testing.T) {
 			// Add more messages than any reasonable channel buffer to verify no deadlock.
 			const n = 1000
 			for range n {
-				tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+				tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
 			}
 
 			history, ch, unsub := tk.Subscribe(t.Context())
@@ -78,7 +78,7 @@ func TestTask(t *testing.T) {
 		})
 		t.Run("MultipleListeners", func(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
-			tk.addMessage(&agent.SystemMessage{MessageType: "system", Subtype: "init"})
+			tk.addMessage(t.Context(), &agent.SystemMessage{MessageType: "system", Subtype: "init"})
 
 			// Start two subscribers.
 			h1, ch1, unsub1 := tk.Subscribe(t.Context())
@@ -92,7 +92,7 @@ func TestTask(t *testing.T) {
 			}
 
 			// Send a live message — both channels should receive it.
-			tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+			tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
 
 			timeout := time.After(time.Second)
 			for i, ch := range []<-chan agent.Message{ch1, ch2} {
@@ -114,7 +114,7 @@ func TestTask(t *testing.T) {
 
 			// Send a live message after subscribing.
 			msg := &agent.AssistantMessage{MessageType: "assistant"}
-			tk.addMessage(msg)
+			tk.addMessage(t.Context(), msg)
 
 			timeout := time.After(time.Second)
 			select {
@@ -132,7 +132,7 @@ func TestTask(t *testing.T) {
 		t.Run("NoSession", func(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateWaiting)
-			err := tk.SendInput(agent.Prompt{Text: "hello"})
+			err := tk.SendInput(t.Context(), agent.Prompt{Text: "hello"})
 			if err == nil {
 				t.Fatal("expected error when no session is active")
 			}
@@ -165,7 +165,7 @@ func TestTask(t *testing.T) {
 			s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{}, nil)
 			<-s.Done()
 			tk.AttachSession(&SessionHandle{Session: s})
-			err = tk.SendInput(agent.Prompt{Text: "hello"})
+			err = tk.SendInput(t.Context(), agent.Prompt{Text: "hello"})
 			if err == nil {
 				t.Fatal("expected error for dead session")
 			}
@@ -220,7 +220,7 @@ func TestTask(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateRunning)
 			result := &agent.ResultMessage{MessageType: "result"}
-			tk.addMessage(result)
+			tk.addMessage(t.Context(), result)
 			if tk.GetState() != StateWaiting {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateWaiting)
 			}
@@ -229,7 +229,7 @@ func TestTask(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateRunning)
 			// Add an assistant message with an AskUserQuestion tool_use block.
-			tk.addMessage(&agent.AssistantMessage{
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
 				MessageType: "assistant",
 				Message: agent.APIMessage{
 					Content: []agent.ContentBlock{
@@ -238,7 +238,7 @@ func TestTask(t *testing.T) {
 				},
 			})
 			// Now add a result message — should transition to StateAsking.
-			tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
 			if tk.GetState() != StateAsking {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateAsking)
 			}
@@ -250,7 +250,7 @@ func TestTask(t *testing.T) {
 			// machine must scan all assistant messages in the turn.
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateRunning)
-			tk.addMessage(&agent.AssistantMessage{
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
 				MessageType: "assistant",
 				Message: agent.APIMessage{
 					Content: []agent.ContentBlock{
@@ -260,7 +260,7 @@ func TestTask(t *testing.T) {
 				},
 			})
 			// Final partial snapshot: text-only, no tool_use.
-			tk.addMessage(&agent.AssistantMessage{
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
 				MessageType: "assistant",
 				Message: agent.APIMessage{
 					Content: []agent.ContentBlock{
@@ -268,7 +268,7 @@ func TestTask(t *testing.T) {
 					},
 				},
 			})
-			tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
 			if tk.GetState() != StateAsking {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateAsking)
 			}
@@ -279,7 +279,7 @@ func TestTask(t *testing.T) {
 			// state should transition back to running.
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateWaiting)
-			tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+			tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
 			if tk.GetState() != StateRunning {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateRunning)
 			}
@@ -287,7 +287,7 @@ func TestTask(t *testing.T) {
 		t.Run("AssistantMessageTransitionsAskingToRunning", func(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateAsking)
-			tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+			tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
 			if tk.GetState() != StateRunning {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateRunning)
 			}
@@ -298,7 +298,7 @@ func TestTask(t *testing.T) {
 			// AskUserQuestion and correct the state to Asking.
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateRunning)
-			tk.addMessage(&agent.AssistantMessage{
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
 				MessageType: "assistant",
 				Message: agent.APIMessage{
 					Content: []agent.ContentBlock{
@@ -309,7 +309,7 @@ func TestTask(t *testing.T) {
 			// Simulate watchSession setting Waiting before ResultMessage
 			// is processed by the dispatch goroutine.
 			tk.SetState(StateWaiting)
-			tk.addMessage(&agent.ResultMessage{MessageType: "result"})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
 			if tk.GetState() != StateAsking {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateAsking)
 			}
@@ -320,7 +320,7 @@ func TestTask(t *testing.T) {
 			for _, state := range []State{StatePending, StateBranching, StateProvisioning, StateStarting, StateTerminating, StateFailed, StateTerminated} {
 				tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 				tk.SetState(state)
-				tk.addMessage(&agent.AssistantMessage{MessageType: "assistant"})
+				tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
 				if tk.GetState() != state {
 					t.Errorf("state %v changed to %v; want unchanged", state, tk.GetState())
 				}
@@ -336,7 +336,7 @@ func TestTask(t *testing.T) {
 				{Path: "main.go", Added: 10, Deleted: 3},
 				{Path: "img.png", Binary: true},
 			}
-			tk.addMessage(&agent.DiffStatMessage{
+			tk.addMessage(t.Context(), &agent.DiffStatMessage{
 				MessageType: "caic_diff_stat",
 				DiffStat:    ds,
 			})
@@ -348,7 +348,7 @@ func TestTask(t *testing.T) {
 				t.Errorf("LiveDiffStat[0] = %+v", got[0])
 			}
 			// Update with new diff stat.
-			tk.addMessage(&agent.DiffStatMessage{
+			tk.addMessage(t.Context(), &agent.DiffStatMessage{
 				MessageType: "caic_diff_stat",
 				DiffStat:    agent.DiffStat{{Path: "new.go", Added: 1, Deleted: 0}},
 			})
@@ -361,7 +361,7 @@ func TestTask(t *testing.T) {
 		t.Run("ResultMessageUpdatesLiveDiffStat", func(t *testing.T) {
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 			tk.SetState(StateRunning)
-			tk.addMessage(&agent.ResultMessage{
+			tk.addMessage(t.Context(), &agent.ResultMessage{
 				MessageType: "result",
 				DiffStat:    agent.DiffStat{{Path: "a.go", Added: 5, Deleted: 2}},
 			})
@@ -435,11 +435,11 @@ func TestTask(t *testing.T) {
 	t.Run("LiveUsageCumulative", func(t *testing.T) {
 		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 		tk.SetState(StateRunning)
-		tk.addMessage(&agent.ResultMessage{
+		tk.addMessage(t.Context(), &agent.ResultMessage{
 			MessageType: "result",
 			Usage:       agent.Usage{InputTokens: 100, OutputTokens: 50, CacheReadInputTokens: 10},
 		})
-		tk.addMessage(&agent.ResultMessage{
+		tk.addMessage(t.Context(), &agent.ResultMessage{
 			MessageType: "result",
 			Usage:       agent.Usage{InputTokens: 200, OutputTokens: 80, CacheCreationInputTokens: 30},
 		})

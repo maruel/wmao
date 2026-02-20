@@ -714,14 +714,14 @@ const (
 // The relay probe uses the server context (not the request context) because the
 // SSH round-trip may outlive a cancelled HTTP request, and we want the log line
 // regardless.
-func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *v1.InputReq) (*v1.StatusResp, error) {
+func (s *Server) sendInput(ctx context.Context, entry *taskEntry, req *v1.InputReq) (*v1.StatusResp, error) {
 	if len(req.Prompt.Images) > 0 {
 		runner := s.runners[entry.task.Repo]
 		if b := runner.Backends[entry.task.Harness]; b != nil && !b.SupportsImages() {
 			return nil, dto.BadRequest(string(entry.task.Harness) + " does not support images")
 		}
 	}
-	if err := entry.task.SendInput(v1PromptToAgent(req.Prompt)); err != nil {
+	if err := entry.task.SendInput(ctx, v1PromptToAgent(req.Prompt)); err != nil {
 		t := entry.task
 		rs := relayNoContainer
 		if t.Container != "" {
