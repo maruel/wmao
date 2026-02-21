@@ -3,6 +3,8 @@ package com.fghbuild.caic.ui.taskdetail
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.fghbuild.caic.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +21,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -62,6 +64,7 @@ fun InputBar(
     onTerminate: () -> Unit,
     sending: Boolean,
     pendingAction: String?,
+    repoURL: String? = null,
     pendingImages: List<ImageData> = emptyList(),
     supportsImages: Boolean = false,
     onAttachGallery: () -> Unit = {},
@@ -123,7 +126,11 @@ fun InputBar(
             } else {
                 Tip("Sync") {
                     IconButton(onClick = onSync, enabled = !busy) {
-                        Icon(Icons.Default.Sync, contentDescription = "Sync")
+                        if (repoURL?.contains("github.com") == true) {
+                            Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
+                        } else {
+                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+                        }
                     }
                 }
             }
@@ -132,7 +139,7 @@ fun InputBar(
             } else {
                 Tip("Terminate") {
                     IconButton(onClick = onTerminate, enabled = !busy) {
-                        Icon(Icons.Default.Stop, contentDescription = "Terminate")
+                        Icon(Icons.Default.Delete, contentDescription = "Terminate")
                     }
                 }
             }

@@ -56,6 +56,7 @@ import com.fghbuild.caic.util.uriToImageData
 
 private val PlanBadgeBg = Color(0xFFEDE9FE)
 private val PlanBadgeFg = Color(0xFF7C3AED)
+private val TerminalStates = setOf("terminated", "failed")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,39 +163,42 @@ fun TaskDetailScreen(
             )
         },
         bottomBar = {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
-            Column(modifier = Modifier.widthIn(max = 840.dp)) {
-                state.actionError?.let { error ->
-                    Text(
-                        text = error,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            if (task?.state !in TerminalStates) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+                Column(modifier = Modifier.widthIn(max = 840.dp)) {
+                    state.actionError?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                        )
+                    }
+                    InputBar(
+                        draft = state.inputDraft,
+                        onDraftChange = viewModel::updateInputDraft,
+                        onSend = viewModel::sendInput,
+                        onSync = { viewModel.syncTask() },
+                        onTerminate = viewModel::terminateTask,
+                        sending = state.sending,
+                        pendingAction = state.pendingAction,
+                        repoURL = task?.repoURL,
+                        pendingImages = state.pendingImages,
+                        supportsImages = state.supportsImages,
+                        onAttachGallery = {
+                            photoPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        onAttachCamera = {
+                            val uri = createCameraPhotoUri(context)
+                            cameraUri = uri
+                            cameraLauncher.launch(uri)
+                        },
+                        onRemoveImage = viewModel::removeImage,
                     )
                 }
-                InputBar(
-                    draft = state.inputDraft,
-                    onDraftChange = viewModel::updateInputDraft,
-                    onSend = viewModel::sendInput,
-                    onSync = { viewModel.syncTask() },
-                    onTerminate = viewModel::terminateTask,
-                    sending = state.sending,
-                    pendingAction = state.pendingAction,
-                    pendingImages = state.pendingImages,
-                    supportsImages = state.supportsImages,
-                    onAttachGallery = {
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    onAttachCamera = {
-                        val uri = createCameraPhotoUri(context)
-                        cameraUri = uri
-                        cameraLauncher.launch(uri)
-                    },
-                    onRemoveImage = viewModel::removeImage,
-                )
-            }
+                }
             }
         },
     ) { padding ->
@@ -234,10 +238,10 @@ private fun MessageList(
     // Auto-scroll to bottom when new messages arrive, unless user scrolled up.
     LaunchedEffect(state.turns.size, state.messages.size) {
         if (!userScrolledUp && state.turns.isNotEmpty()) {
-            val total = listState.layoutInfo.totalItemsCount
+            val lastIndex = state.turns.size - 1
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            if (total > 0 && lastVisible < total - 1) {
-                listState.animateScrollToItem(total - 1)
+            if (lastVisible < lastIndex) {
+                listState.animateScrollToItem(lastIndex)
             }
         }
     }
@@ -272,7 +276,7 @@ private fun MessageList(
                 val turns = state.turns
                 itemsIndexed(
                     turns,
-                    key = { _, turn -> turn.groups.firstOrNull()?.events?.firstOrNull()?.ts ?: 0L },
+                    key = { index, _ -> index },
                 ) { index, turn ->
                     if (index < turns.size - 1) {
                         ElidedTurn(turn = turn)
