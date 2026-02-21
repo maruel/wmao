@@ -144,10 +144,6 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 				lt.Title = mr.Title
 			}
 			lt.Result = &Result{
-				Task:     lt.Prompt,
-				Title:    lt.Title,
-				Repo:     lt.Repo,
-				Branch:   lt.Branch,
 				State:    lt.State,
 				CostUSD:  mr.CostUSD,
 				Duration: time.Duration(mr.Duration * float64(time.Second)),

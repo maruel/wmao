@@ -22,10 +22,10 @@ import (
 
 // StartOptions holds optional flags for container startup.
 type StartOptions struct {
-	Image     string
-	Tailscale bool
-	USB       bool
-	Display   bool
+	DockerImage string
+	Tailscale   bool
+	USB         bool
+	Display     bool
 }
 
 // ContainerBackend abstracts md container lifecycle operations for testability.
@@ -38,11 +38,6 @@ type ContainerBackend interface {
 
 // Result holds the outcome of a completed task.
 type Result struct {
-	Task        string
-	Title       string
-	Repo        string
-	Branch      string
-	Container   string
 	State       State
 	DiffStat    agent.DiffStat
 	CostUSD     float64
@@ -341,12 +336,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	}
 
 	res := Result{
-		Task:      t.InitialPrompt.Text,
-		Title:     t.Title(),
-		Repo:      t.Repo,
-		Branch:    t.Branch,
-		Container: name,
-		State:     reason,
+		State: reason,
 	}
 	if result != nil {
 		res.CostUSD = result.TotalCostUSD
@@ -374,7 +364,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	if h != nil {
 		logW = h.LogW
 	}
-	writeLogTrailer(logW, &res)
+	writeLogTrailer(logW, t.Title(), &res)
 	if logW != nil {
 		_ = logW.Close()
 	}
@@ -420,11 +410,11 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	}
 
 	t.SetState(StateProvisioning)
-	slog.Info("starting container", "repo", t.Repo, "branch", branch, "image", t.Image, "harness", t.Harness, "tailscale", t.Tailscale, "usb", t.USB, "display", t.Display)
+	slog.Info("starting container", "repo", t.Repo, "branch", branch, "image", t.DockerImage, "harness", t.Harness, "tailscale", t.Tailscale, "usb", t.USB, "display", t.Display)
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
 	name, tailscaleFQDN, err := r.Container.Start(startCtx, r.Dir, branch, labels, StartOptions{
-		Image: t.Image, Tailscale: t.Tailscale, USB: t.USB, Display: t.Display,
+		DockerImage: t.DockerImage, Tailscale: t.Tailscale, USB: t.USB, Display: t.Display,
 	})
 	if err != nil {
 		return setupResult{}, fmt.Errorf("start container: %w", err)
@@ -557,7 +547,6 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 		Model:         t.Model,
 		InitialPrompt: prompt,
 	}, msgCh, logW)
-
 	if err != nil {
 		_ = logW.Close()
 		close(msgCh)
@@ -773,14 +762,14 @@ func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 }
 
 // writeLogTrailer appends a MetaResultMessage to the log file.
-func writeLogTrailer(w io.Writer, res *Result) {
+func writeLogTrailer(w io.Writer, title string, res *Result) {
 	if w == nil {
 		return
 	}
 	mr := agent.MetaResultMessage{
 		MessageType:              "caic_result",
 		State:                    res.State.String(),
-		Title:                    res.Title,
+		Title:                    title,
 		CostUSD:                  res.CostUSD,
 		Duration:                 res.Duration.Seconds(),
 		NumTurns:                 res.NumTurns,

@@ -507,8 +507,8 @@ func TestHandleCreateTask(t *testing.T) {
 		if entry == nil {
 			t.Fatal("task not found")
 		}
-		if entry.task.Image != "ghcr.io/my/image:v1" {
-			t.Errorf("Image = %q, want %q", entry.task.Image, "ghcr.io/my/image:v1")
+		if entry.task.DockerImage != "ghcr.io/my/image:v1" {
+			t.Errorf("Image = %q, want %q", entry.task.DockerImage, "ghcr.io/my/image:v1")
 		}
 	})
 

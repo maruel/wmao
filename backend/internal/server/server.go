@@ -93,7 +93,7 @@ type mdBackend struct {
 
 func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, opts task.StartOptions) (name, tailscaleFQDN string, err error) {
 	slog.Info("md start", "dir", dir, "branch", branch, "tailscale", opts.Tailscale, "usb", opts.USB, "display", opts.Display)
-	image := opts.Image
+	image := opts.DockerImage
 	if image == "" {
 		image = md.DefaultBaseImage + ":latest"
 	}
@@ -441,7 +441,7 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), Provider: s.provider}
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, DockerImage: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), Provider: s.provider}
 	t.SetTitle(req.InitialPrompt.Text)
 	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
 	entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -455,7 +455,7 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 	go func() {
 		h, err := runner.Start(s.ctx, t)
 		if err != nil {
-			result := task.Result{Task: t.InitialPrompt.Text, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
+			result := task.Result{State: task.StateFailed, Err: err}
 			s.mu.Lock()
 			entry.result = &result
 			s.taskChanged()
