@@ -238,10 +238,10 @@ private fun MessageList(
     // Auto-scroll to bottom when new messages arrive, unless user scrolled up.
     LaunchedEffect(state.turns.size, state.messageCount) {
         if (!userScrolledUp && state.turns.isNotEmpty()) {
-            val lastIndex = state.turns.size - 1
+            val total = listState.layoutInfo.totalItemsCount
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            if (lastVisible < lastIndex) {
-                listState.animateScrollToItem(lastIndex)
+            if (total > 0 && lastVisible < total - 1) {
+                listState.animateScrollToItem(total - 1)
             }
         }
     }
@@ -265,26 +265,45 @@ private fun MessageList(
             )
         }
 
-        // Message turns
+        // Message turns: past turns are elided; the last turn's groups are flattened into the
+        // LazyColumn so that only visible groups are composed (avoids eagerly rendering 80+
+        // Markdown composables for a turn with many tool-call commentary messages).
         SelectionContainer(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 val turns = state.turns
-                itemsIndexed(
-                    turns,
-                    key = { index, _ -> index },
-                ) { index, turn ->
-                    if (index < turns.size - 1) {
+                val lastTurn = turns.lastOrNull()
+                val isWaiting = state.task?.state == "waiting"
+
+                // Elided past turns.
+                if (turns.size > 1) {
+                    itemsIndexed(
+                        items = turns.subList(0, turns.size - 1),
+                        key = { _, turn ->
+                            turn.groups.firstOrNull()?.events?.firstOrNull()?.ts ?: 0L
+                        },
+                    ) { _, turn ->
                         ElidedTurn(turn = turn)
-                    } else {
-                        TurnContent(
-                            turn = turn,
+                    }
+                }
+
+                // Last turn: groups are individual lazy items.
+                if (lastTurn != null) {
+                    itemsIndexed(
+                        items = lastTurn.groups,
+                        key = { _, group ->
+                            "g:${group.events.firstOrNull()?.ts ?: 0L}"
+                        },
+                    ) { _, group ->
+                        MessageGroupContent(
+                            group = group,
+                            turn = lastTurn,
                             onAnswer = onAnswer,
-                            isWaiting = state.task?.state == "waiting",
+                            isWaiting = isWaiting,
                             onClearAndExecutePlan = onClearAndExecutePlan,
                         )
                     }

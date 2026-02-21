@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.ImageData
 import com.fghbuild.caic.util.GroupKind
+import com.fghbuild.caic.util.MessageGroup
 import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.imageDataToBitmap
 import com.fghbuild.caic.util.turnHasExitPlanMode
@@ -35,6 +36,42 @@ import com.mikepenz.markdown.m3.Markdown
 private val PlanBorderColor = Color(0xFFDDD6FE)
 private val PlanBgColor = Color(0xFFF5F3FF)
 
+/** Renders a single [MessageGroup] from [turn]. Used both in [TurnContent] and the flat list. */
+@Composable
+fun MessageGroupContent(
+    group: MessageGroup,
+    turn: Turn,
+    onAnswer: ((String) -> Unit)?,
+    isWaiting: Boolean = false,
+    onClearAndExecutePlan: (() -> Unit)? = null,
+) {
+    when (group.kind) {
+        GroupKind.TEXT -> TextMessageGroup(events = group.events)
+        GroupKind.TOOL -> ToolMessageGroup(toolCalls = group.toolCalls)
+        GroupKind.ASK -> {
+            group.ask?.let { ask ->
+                AskQuestionCard(ask = ask, answerText = group.answerText, onAnswer = onAnswer)
+            }
+        }
+        GroupKind.USER_INPUT -> {
+            val userInput = group.events.firstOrNull()?.userInput
+            if (userInput != null) {
+                UserInputContent(text = userInput.text, images = userInput.images.orEmpty())
+            }
+        }
+        GroupKind.OTHER -> {
+            val result = group.events.firstOrNull { it.kind == EventKinds.Result }?.result
+            if (result != null) {
+                ResultCard(result = result)
+                if (isWaiting && turnHasExitPlanMode(turn)) {
+                    PlanApprovalSection(turn = turn, onExecute = onClearAndExecutePlan)
+                }
+            }
+        }
+    }
+}
+
+/** Renders all groups in [turn] as a non-lazy Column. Used for expanded elided turns. */
 @Composable
 fun TurnContent(
     turn: Turn,
@@ -47,30 +84,7 @@ fun TurnContent(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         turn.groups.forEach { group ->
-            when (group.kind) {
-                GroupKind.TEXT -> TextMessageGroup(events = group.events)
-                GroupKind.TOOL -> ToolMessageGroup(toolCalls = group.toolCalls)
-                GroupKind.ASK -> {
-                    group.ask?.let { ask ->
-                        AskQuestionCard(ask = ask, answerText = group.answerText, onAnswer = onAnswer)
-                    }
-                }
-                GroupKind.USER_INPUT -> {
-                    val userInput = group.events.firstOrNull()?.userInput
-                    if (userInput != null) {
-                        UserInputContent(text = userInput.text, images = userInput.images.orEmpty())
-                    }
-                }
-                GroupKind.OTHER -> {
-                    val result = group.events.firstOrNull { it.kind == EventKinds.Result }?.result
-                    if (result != null) {
-                        ResultCard(result = result)
-                        if (isWaiting && turnHasExitPlanMode(turn)) {
-                            PlanApprovalSection(turn = turn, onExecute = onClearAndExecutePlan)
-                        }
-                    }
-                }
-            }
+            MessageGroupContent(group, turn, onAnswer, isWaiting, onClearAndExecutePlan)
         }
     }
 }
