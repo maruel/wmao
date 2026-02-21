@@ -96,17 +96,11 @@ func WatchEvents(ctx context.Context, labelFilter string) (<-chan Event, error) 
 }
 
 // BranchFromContainer derives the git branch name from a container name by
-// stripping the "md-<repo>-" prefix and restoring the "caic/" prefix that was
-// flattened to "caic-" by md.
+// stripping the "md-<repo>-" prefix.
 func BranchFromContainer(containerName, repoName string) (string, bool) {
 	prefix := "md-" + repoName + "-"
 	if !strings.HasPrefix(containerName, prefix) {
 		return "", false
 	}
-	slug := containerName[len(prefix):]
-	// md replaces "/" with "-", so "caic/foo" becomes "caic-foo".
-	if strings.HasPrefix(slug, "caic-") {
-		return "caic/" + slug[len("caic-"):], true
-	}
-	return slug, true
+	return containerName[len(prefix):], true
 }

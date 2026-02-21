@@ -24,7 +24,7 @@ func TestBranchFromContainer(t *testing.T) {
 			name:      "standard caic branch",
 			container: "md-caic-caic-fix-auth",
 			repo:      "caic",
-			wantBr:    "caic/fix-auth",
+			wantBr:    "caic-fix-auth",
 			wantOK:    true,
 		},
 		{
@@ -52,7 +52,14 @@ func TestBranchFromContainer(t *testing.T) {
 			name:      "different repo",
 			container: "md-myrepo-caic-fix",
 			repo:      "myrepo",
-			wantBr:    "caic/fix",
+			wantBr:    "caic-fix",
+			wantOK:    true,
+		},
+		{
+			name:      "numeric caic branch",
+			container: "md-myrepo-caic-2",
+			repo:      "myrepo",
+			wantBr:    "caic-2",
 			wantOK:    true,
 		},
 	}
