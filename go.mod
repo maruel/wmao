@@ -9,7 +9,7 @@ require (
 	github.com/lmittmann/tint v1.1.3
 	github.com/maruel/genai v0.2.0
 	github.com/maruel/ksid v0.1.1
-	github.com/maruel/md v0.6.3-0.20260221002029-828bd76222fb
+	github.com/maruel/md v0.6.3-0.20260221012232-e2e2905a8d8a
 	github.com/mattn/go-colorable v0.1.14
 	github.com/mattn/go-isatty v0.0.20
 )
