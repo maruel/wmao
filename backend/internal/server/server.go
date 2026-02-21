@@ -1064,13 +1064,15 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 		return nil
 	}
 
-	// Map branches loaded from terminated task logs to their ID in
+	// Map repo+branch loaded from terminated task logs to their ID in
 	// s.tasks so we can replace stale entries with live containers.
+	// The key is "repo\x00branch" because different repos can share a
+	// branch name.
 	s.mu.Lock()
 	branchID := make(map[string]string, len(s.tasks))
 	for id, e := range s.tasks {
 		if e.task.Branch != "" {
-			branchID[e.task.Branch] = id
+			branchID[e.task.Repo+"\x00"+e.task.Branch] = id
 		}
 	}
 	s.mu.Unlock()
@@ -1122,10 +1124,13 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		return fmt.Errorf("parse caic label %q on %s: %w", labelVal, c.Name, err)
 	}
 
-	// Find the most recent log file for this branch from the pre-loaded logs.
+	// Find the most recent log file for this repo+branch from the pre-loaded
+	// logs. Both repo and branch must match: different repos can share a
+	// branch name (e.g. "caic-0"), and matching on branch alone would return
+	// another repo's log, corrupting the title, prompt, and timestamps.
 	var lt *task.LoadedTask
 	for i := len(allLogs) - 1; i >= 0; i-- {
-		if allLogs[i].Branch == branch {
+		if allLogs[i].Branch == branch && allLogs[i].Repo == ri.RelPath {
 			lt = allLogs[i]
 			break
 		}
@@ -1227,7 +1232,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
-	if oldID, ok := branchID[branch]; ok {
+	if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok {
 		// Replace the stale terminated entry with the live container.
 		delete(s.tasks, oldID)
 	}

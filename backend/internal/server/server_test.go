@@ -750,6 +750,81 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		}
 	})
 
+	t.Run("SameBranchDifferentRepos", func(t *testing.T) {
+		logDir := t.TempDir()
+
+		// Two logs from different repos share the same branch name.
+		// Each must retain its own title and prompt.
+		metaA := mustJSON(t, agent.MetaMessage{
+			MessageType: "caic_meta", Version: 1,
+			Prompt: "optimize genai provider", Repo: "genai", Branch: "caic-0",
+			Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Title: "Skip Unnecessary MD Container Build",
+		})
+		trailerA := mustJSON(t, agent.MetaResultMessage{
+			MessageType: "caic_result", State: "terminated",
+			Title: "Optimize GenAI Provider",
+		})
+		writeLogFile(t, logDir, "a.jsonl", metaA, trailerA)
+
+		metaB := mustJSON(t, agent.MetaMessage{
+			MessageType: "caic_meta", Version: 1,
+			Prompt: "skip docker rebuilds", Repo: "md", Branch: "caic-0",
+			Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC),
+			Title: "Skip Docker Rebuilds",
+		})
+		trailerB := mustJSON(t, agent.MetaResultMessage{
+			MessageType: "caic_result", State: "terminated",
+			Title: "Skip Unnecessary Docker Image Rebuilds",
+		})
+		writeLogFile(t, logDir, "b.jsonl", metaB, trailerB)
+
+		s := &Server{
+			runners: map[string]*task.Runner{},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			logDir:  logDir,
+		}
+		if err := s.loadTerminatedTasks(); err != nil {
+			t.Fatal(err)
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if len(s.tasks) != 2 {
+			t.Fatalf("len(tasks) = %d, want 2", len(s.tasks))
+		}
+
+		// Verify each task has the title matching its own repo.
+		for _, e := range s.tasks {
+			switch e.task.Repo {
+			case "genai":
+				if got := e.task.Title(); got != "Optimize GenAI Provider" {
+					t.Errorf("genai title = %q, want %q", got, "Optimize GenAI Provider")
+				}
+			case "md":
+				if got := e.task.Title(); got != "Skip Unnecessary Docker Image Rebuilds" {
+					t.Errorf("md title = %q, want %q", got, "Skip Unnecessary Docker Image Rebuilds")
+				}
+			default:
+				t.Errorf("unexpected repo %q", e.task.Repo)
+			}
+		}
+
+		// Verify that branchID scoped by repo does not lose either entry.
+		// This mirrors the branchID construction in adoptContainers.
+		branchID := make(map[string]string, len(s.tasks))
+		for id, e := range s.tasks {
+			if e.task.Branch != "" {
+				key := e.task.Repo + "\x00" + e.task.Branch
+				branchID[key] = id
+			}
+		}
+		if len(branchID) != 2 {
+			t.Errorf("branchID has %d entries, want 2 (repo-scoped keys must not collide)", len(branchID))
+		}
+	})
+
 	t.Run("EmptyDir", func(t *testing.T) {
 		s := &Server{
 			runners: map[string]*task.Runner{},
